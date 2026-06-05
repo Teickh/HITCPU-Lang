@@ -1,0 +1,18 @@
+int x;
+
+int main() {
+    x = 5 + 2 * 3;
+    int y = 3;
+    if (5 < 2) {
+        x = x + 5;
+        y = x;
+    }
+    print x;
+    print y;
+
+    return 0;
+}
+
+int test(char Hello, int x) {
+    print Hello;
+}
