@@ -12,7 +12,7 @@
 FILE *open_file(const char *program_name) {
     char file_path[256];
 
-    snprintf(file_path, sizeof(file_path), "programs/%s.txt", program_name);
+    snprintf(file_path, sizeof(file_path), "%s.txt", program_name);
 
     FILE *program = fopen(file_path, "r");
 
@@ -22,7 +22,7 @@ FILE *open_file(const char *program_name) {
         return NULL;
     }
     
-    printf("File %s open successfully!", file_path);
+    printf("File %s open successfully!\n", file_path);
     return program;
 }
 
@@ -45,51 +45,69 @@ FILE *create_assembly_file(const char *program_name) {
     return program_assem;
 }
 
-int main() {
-    const char *program_name = "TEST";
-
-    FILE *program = open_file(program_name);
-
-    if (program == NULL) {
+int main(int argc, char * argv[]) {
+    if (argc < 2) {
+        printf("Usage: lang.exe <files...>\n");
         return 1;
     }
 
-    TokenList list = { .items = NULL, .count = 0, .capacity = 0 };
-    StringPool pool = { .data = NULL, .size = 0, .capacity = 0 };
-    ASTTree tree = { .capacity = 0, .count = 0, .nodes = NULL };
-    ProgramRegistry registry = {
-        .function_capacity = 0,
-        .function_count = 0,
-        .global_functions = NULL,
-        .global_var_capacity = 0,
-        .global_var_count = 0,
-        .global_variables = NULL,
-        .main_function_node_index = -1
+    ProgramList programs = {
+        .count = 0,
+        .capacity = argc - 1,
+        .files = malloc(programs.capacity * sizeof(FileRegistry)),
+        .main_file_index = -1,
+        .main_function_index = -1
     };
+
+    for (int i = 1; i < argc; i++) {
+        programs.files[programs.count].filename = argv[i];
+        programs.files[programs.count].main_function_node_index = -1;
+        programs.files[programs.count].global_functions = malloc(8 * sizeof(int));
+        programs.files[programs.count].function_count = 0;
+        programs.files[programs.count].function_capacity = 8;
+        programs.files[programs.count].global_variables = malloc(8 * sizeof(int));
+        programs.files[programs.count].global_var_count = 0;
+        programs.files[programs.count].global_var_capacity = 8;
+
+        programs.count++;
+    }
+
     Scope current_scope = {0};
-    FILE *program_assembly = create_assembly_file(program_name);
-    int total_lines = 0;
-    int program_root = 0;
+    for (int i = 0; i < programs.count; i++) {
+        FILE *program = open_file(argv[i + 1]);
 
-    lexing(program, &list, &pool, &total_lines);
-    print_tokens(&list, &pool); 
+        if (program == NULL) {
+            return 1;
+        }
 
-    parsing(&list, &registry, &pool, &tree, &program_root);
-    printf("\n--- AST Structure ---\n");
-    print_ast(&registry, &tree, &pool, 0);
+        TokenList list = { .items = malloc(8 * sizeof(Token)), .count = 0, .capacity = 8 };
+        StringPool pool = { .data = malloc(1024), .size = 0, .capacity = 1024 };
+        // FILE *program_assembly = create_assembly_file(program_name);
+        int total_lines = 0;
 
-    free(list.items);
+        lexing(program, &list, &pool, &total_lines);
+        print_tokens(&list, &pool); 
 
-    analyse(&registry, &tree, &current_scope);
+        ASTTree tree = { .capacity = 8, .count = 0, .nodes = malloc(8 * sizeof(ASTNode)) };
 
-    // int node_count = 0;
-    // generate_code(ast, program_assembly, &regs);
-    // printf("\n=== [DEBUG: AST TRAVERSAL] ===\n");
-    // debug_print_ast(ast, node_count);
+        parsing(&list, &programs.files[i], &pool, &tree);
+        printf("\n--- AST Structure ---\n");
+        print_ast(&programs.files[i], &tree, &pool, 0);
 
-    fclose(program);
-    fclose(program_assembly);
-    free(pool.data);
-    // free_ast(tree);
+        free(list.items);
+
+        analyse(&programs.files[i], &tree, &current_scope);
+
+        // int node_count = 0;
+        // generate_code(ast, program_assembly, &regs);
+        // printf("\n=== [DEBUG: AST TRAVERSAL] ===\n");
+        // debug_print_ast(ast, node_count);
+
+        fclose(program);
+        // fclose(program_assembly);
+        free(pool.data);
+        // free_ast(tree);
+    }
+
     return 0;
 }

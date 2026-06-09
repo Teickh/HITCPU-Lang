@@ -33,7 +33,7 @@ void add_token(TokenList *list, StringPool *pool, TokenType type, const char *va
     int offset = find_string_in_pool(pool, value);
     
     if (list->count >= list->capacity) {
-        list->capacity = (list->capacity == 0) ? 8 : list->capacity * 2;
+        list->capacity *= 2;
 
         Token *temp = realloc(list->items, list->capacity * sizeof(Token));
         if (!temp) {
@@ -48,8 +48,8 @@ void add_token(TokenList *list, StringPool *pool, TokenType type, const char *va
         offset = pool->size;
 
         int len = strlen(value) + 1;
-        while (pool->size + 1 >= pool->capacity) {
-            pool->capacity = (pool->capacity == 0) ? 1024 : pool->capacity * 2;
+        if (pool->size + len >= pool->capacity) {
+            pool->capacity *= 2;
 
             char *temp = realloc(pool->data, pool->capacity);
             if (!temp) {
@@ -108,6 +108,11 @@ void lexing(FILE *program, TokenList *list, StringPool *pool, int *total_lines) 
             
             buffer[j] = '\0';
 
+            if (j >= 1023) {
+                fprintf(stderr, "Lexer error: Identifier too long at line %d\n", *total_lines);
+                exit(1);
+            }
+
             add_token(list, pool, check_keyword(buffer), buffer, *total_lines, column);
         } else if (isdigit(c)) {
             char buffer[1024];
@@ -118,6 +123,11 @@ void lexing(FILE *program, TokenList *list, StringPool *pool, int *total_lines) 
             ungetc(c, program);
 
             buffer[j] = '\0';
+
+            if (j >= 1023) {
+                fprintf(stderr, "Lexer error: Identifier too long at line %d\n", *total_lines);
+                exit(1);
+            }
 
             add_token(list, pool, TOKEN_INT_LIT, buffer, *total_lines, column);
         } else {
@@ -176,6 +186,11 @@ void lexing(FILE *program, TokenList *list, StringPool *pool, int *total_lines) 
                     
                     buffer[j] = '\0';
 
+                    if (j >= 1023) {
+                        fprintf(stderr, "Lexer error: Identifier too long at line %d\n", *total_lines);
+                        exit(1);
+                    }
+
                     add_token(list, pool, TOKEN_CHAR_STRING, buffer, *total_lines, column);
                     break;
                 }
@@ -192,6 +207,11 @@ void lexing(FILE *program, TokenList *list, StringPool *pool, int *total_lines) 
                         if (close_quote != '\'') {
                             ungetc(close_quote, program); 
                         }
+                    }
+
+                    if (j >= 1023) {
+                        fprintf(stderr, "Lexer error: Identifier too long at line %d\n", *total_lines);
+                        exit(1);
                     }
 
                     buffer[j] = '\0';

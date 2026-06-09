@@ -5,47 +5,6 @@
 #include "parser.h"
 #include "struct.h"
 
-void safe_set_left(ASTTree *tree, int node_index, int left_index) {
-    if (node_index < 0 || node_index >= tree->count) {
-        printf("\n!!! CRITICAL HEAP HAZARD !!!\n");
-        printf("Attempted to set .left on invalid node index: %d\nLine: %d\n Column: %d\n",
-            node_index,
-            tree->nodes[node_index].line,
-            tree->nodes[node_index].column);
-        printf("Current tree count: %d, Capacity: %d\n", tree->count, tree->capacity);
-        exit(1);
-    }
-    tree->nodes[node_index].left = left_index;
-}
-
-void safe_set_right(ASTTree *tree, int node_index, int right_index) {
-    if (node_index < 0 || node_index >= tree->count) {
-        printf("\n!!! CRITICAL HEAP HAZARD !!!\n");
-        printf("Attempted to set .right on invalid node index: %d\nLine: %d\n Column: %d\n",
-            node_index,
-            tree->nodes[node_index].line,
-            tree->nodes[node_index].column);
-        printf("Current tree count: %d, Capacity: %d\n", tree->count, tree->capacity);
-        exit(1);
-    }
-    tree->nodes[node_index].right = right_index;
-}
-
-TokenType peek(TokenList *list, int current_idx, int offset) {
-    int target = current_idx + offset;
-
-    if (target >= list->count || target < 0) {
-        return TOKEN_EOF;
-    }
-    
-    return list->items[target].type;
-}
-
-int parse_factor(ASTTree *tree, TokenList *list, int *i, StringPool *pool);
-int parse_term(ASTTree *tree, TokenList *list, int *i, StringPool *pool);
-int parse_expression(ASTTree *tree, TokenList *list, int *i, StringPool *pool);
-int parse_body(ASTTree *tree, TokenList *list, StringPool *pool, int *i);
-
 void print_block(ASTTree *tree, ASTNode *node, StringPool *pool, int node_index, int level) {
     if (node_index == -1 || node == NULL) return;
 
@@ -102,7 +61,7 @@ void print_block(ASTTree *tree, ASTNode *node, StringPool *pool, int node_index,
     }
 }
 
-void print_ast(ProgramRegistry *registry, ASTTree *tree, StringPool *pool, int level) {
+void print_ast(FileRegistry *registry, ASTTree *tree, StringPool *pool, int level) {
     for (int i = 0; i < registry->function_count; i++) {
         int node_index = registry->global_functions[i];
         print_block(tree, &tree->nodes[registry->global_functions[i]], pool, node_index, level);
@@ -112,6 +71,47 @@ void print_ast(ProgramRegistry *registry, ASTTree *tree, StringPool *pool, int l
     for (int j = 0; j < tree->count; j++) {
         printf("Node %d: Type = %s\n", j, token_type_to_string(tree->nodes[j].type));
     }
+}
+
+int parse_factor(ASTTree *tree, TokenList *list, int *i, StringPool *pool);
+int parse_term(ASTTree *tree, TokenList *list, int *i, StringPool *pool);
+int parse_expression(ASTTree *tree, TokenList *list, int *i, StringPool *pool);
+int parse_body(ASTTree *tree, TokenList *list, StringPool *pool, int *i);
+
+void safe_set_left(ASTTree *tree, int node_index, int left_index) {
+    if (node_index < 0 || node_index >= tree->count) {
+        printf("\n!!! CRITICAL HEAP HAZARD !!!\n");
+        printf("Attempted to set .left on invalid node index: %d\nLine: %d\n Column: %d\n",
+            node_index,
+            tree->nodes[node_index].line,
+            tree->nodes[node_index].column);
+        printf("Current tree count: %d, Capacity: %d\n", tree->count, tree->capacity);
+        exit(1);
+    }
+    tree->nodes[node_index].left = left_index;
+}
+
+void safe_set_right(ASTTree *tree, int node_index, int right_index) {
+    if (node_index < 0 || node_index >= tree->count) {
+        printf("\n!!! CRITICAL HEAP HAZARD !!!\n");
+        printf("Attempted to set .right on invalid node index: %d\nLine: %d\n Column: %d\n",
+            node_index,
+            tree->nodes[node_index].line,
+            tree->nodes[node_index].column);
+        printf("Current tree count: %d, Capacity: %d\n", tree->count, tree->capacity);
+        exit(1);
+    }
+    tree->nodes[node_index].right = right_index;
+}
+
+TokenType peek(TokenList *list, int current_idx, int offset) {
+    int target = current_idx + offset;
+
+    if (target >= list->count || target < 0) {
+        return TOKEN_EOF;
+    }
+    
+    return list->items[target].type;
 }
 
 int create_node(ASTTree *tree, Token token, StringPool *pool) {
@@ -411,7 +411,7 @@ int parse_body(ASTTree *tree, TokenList *list, StringPool *pool, int *i) {
     }
 
     if (count > 0) {
-        statements = realloc(statements, count *sizeof(int));
+        statements = realloc(statements, count * sizeof(int));
     } else {
         free(statements);
         statements = NULL;
@@ -528,7 +528,7 @@ int parse_parameter_list(ASTTree *tree, TokenList *list, StringPool *pool, int *
     return param_node_index;
 }
 
-int parse_program(ProgramRegistry *registry, ASTTree *tree, TokenList *list, StringPool *pool, int *i) {
+int parse_program(FileRegistry *registry, ASTTree *tree, TokenList *list, StringPool *pool, int *i) {
     TokenType ret_type = list->items[(*i)].type;
     switch (ret_type) {
         case TOKEN_INT:
@@ -602,9 +602,9 @@ int parse_program(ProgramRegistry *registry, ASTTree *tree, TokenList *list, Str
     return func_node_index;
 }
 
-void ensure_registry_capacity(ProgramRegistry *registry) {
+void ensure_registry_capacity(FileRegistry *registry) {
     if (registry->function_count >= registry->function_capacity) {
-        registry->function_capacity = (registry->function_capacity == 0) ? 8 : registry->function_capacity * 2;
+        registry->function_capacity *= 2;
 
         int *temp = realloc(registry->global_functions, registry->function_capacity * sizeof(int));
         if (!temp) {
@@ -615,7 +615,7 @@ void ensure_registry_capacity(ProgramRegistry *registry) {
     }
     
     if (registry->global_var_count >= registry->global_var_capacity) {
-        registry->global_var_capacity = (registry->global_var_capacity == 0) ? 8 : registry->global_var_capacity * 2;
+        registry->global_var_capacity *= 2;
 
         int *temp = realloc(registry->global_variables, registry->global_var_capacity * sizeof(int));
         if (!temp) {
@@ -626,13 +626,13 @@ void ensure_registry_capacity(ProgramRegistry *registry) {
     }
 }
 
-void parsing(TokenList *list, ProgramRegistry *registry, StringPool *pool, ASTTree *tree, int *program_root) {
+void parsing(TokenList *list, FileRegistry *registry, StringPool *pool, ASTTree *tree) {
     if (list == NULL || list->items == NULL) {
         printf("Error");
         exit(1);
     }
 
-    int i = 0, modifiable = 0;
+    int i = 0;
     while (i < list->count && list->items[i].type != TOKEN_EOF) {
         ensure_registry_capacity(registry);
         if (peek(list, i, 2) == TOKEN_ASSIGN || peek(list, i, 2) == TOKEN_SEMICOLON) {

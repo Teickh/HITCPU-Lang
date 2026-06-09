@@ -5,7 +5,7 @@
 
 #include "struct.h"
 
-void parsing(TokenList *list, ProgramRegistry *program, StringPool *pool, ASTTree *tree, int *program_root);
-void print_ast(ProgramRegistry *registry, ASTTree *tree, StringPool *pool, int level);
+void parsing(TokenList *list, FileRegistry *registry, StringPool *pool, ASTTree *tree);
+void print_ast(FileRegistry *registry, ASTTree *tree, StringPool *pool, int level);
 
 #endif

@@ -3,6 +3,6 @@
 
 #include "struct.h"
 
-void analyse(ProgramRegistry *registry, ASTTree *tree, Scope *current_scope);
+void analyse(FileRegistry *registry, ASTTree *tree, Scope *current_scope);
 
 #endif

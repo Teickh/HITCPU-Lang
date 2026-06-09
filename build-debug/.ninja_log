@@ -1,0 +1,13 @@
+# ninja log v7
+31	70	8026398248596822	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/code_gen.c.obj	6bf294b837738408
+16	114	8026398248451606	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/lang.c.obj	abcd040d8044fc61
+19	128	8026398248486726	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/lexer.c.obj	9909c49e6de8a2cd
+27	131	8026398248556832	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/semantic_analysis.c.obj	bdd9632954041df3
+23	179	8026398248516703	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/parser.c.obj	d47fb9291ce0d8ed
+179	279	8026398250074176	lang.exe	7b7748de1f483976
+39	77	8026790837134978	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/code_gen.c.obj	bcad37d628e68275
+24	98	8026790836994793	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/lang.c.obj	347b0a263e29c07
+28	104	8026790837034776	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/lexer.c.obj	c562dc65aee45651
+35	105	8026790837104964	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/semantic_analysis.c.obj	47eaa5f71ce47fe
+30	128	8026790837059861	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/parser.c.obj	2ab1d56a91829b14
+129	223	8026790838040907	lang.exe	fcdbfba21a8ad54b

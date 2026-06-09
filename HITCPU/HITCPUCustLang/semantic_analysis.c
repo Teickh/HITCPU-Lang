@@ -197,14 +197,13 @@ void analyse_block(ASTTree *tree, ASTNode *node, int current_node_index, ScopeTr
     }
 }
 
-void analyse(ProgramRegistry *registry, ASTTree *tree, ScopeTree *scope_tree, StringPool *pool) {
+void analyse(FileRegistry *registry, ASTTree *tree, ScopeTree *scope_tree) {
     int global_scope_idx = create_new_scope(scope_tree);
 
     int i = 0, j = 0;
     while (i < registry->function_count || j < registry->global_var_count) {
         if (j < registry->global_var_count) {
             add_symbol(scope_tree, global_scope_idx, SYMBOL_GLOBAL, tree->nodes[registry->global_variables[j]].data.string_offset, tree->nodes[registry->global_variables[j]].data.variable_type);
-            analyse_block(tree, &tree->nodes[registry->global_functions[i]], registry->global_functions[i], scope_tree, global_scope_idx);
             j++;
         }
         

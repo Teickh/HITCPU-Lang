@@ -110,6 +110,7 @@ typedef struct {
 } ASTTree;
 
 typedef struct {
+    const char *filename;
     int main_function_node_index;
     int *global_functions;
     int function_count;
@@ -117,7 +118,15 @@ typedef struct {
     int *global_variables;
     int global_var_count;
     int global_var_capacity;
-} ProgramRegistry;
+} FileRegistry;
+
+typedef struct {
+    int main_file_index;
+    int main_function_index;
+    FileRegistry *files;
+    int count;
+    int capacity;
+} ProgramList;
 
 typedef enum {
     SYMBOL_GLOBAL,
