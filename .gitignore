@@ -1,5 +1,17 @@
-.vscode/
-*.exe
-*.ilk
-*.obj
-*.pdb
+# Ignore the entire CMake build directory
+build-*/
+
+# If you ever accidentally build in the root, ignore these specific targets
+/.cmake/
+/CMakeCache.txt
+/CMakeFiles/
+/CMakePresets.json
+/develop-build/
+/cmake_install.cmake
+/Makefile
+/ninja.build
+/*.exe
+/*.out
+/*.o
+/*.obj
+*.html

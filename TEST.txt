@@ -1,18 +1,17 @@
-int x;
+int result;
+int scale;
 
 int main() {
-    x = 5 + 2 * 3;
-    int y = 3;
-    if (5 < 2) {
-        x = x + 5;
-        y = x;
-    }
-    print x;
+    scale = 2;
+    result = 10 + 5 * scale;
+    
+    int y = result + 1;
+    
+    int scale = 100;
+    
+    print result;
+    print scale;
     print y;
 
     return 0;
-}
-
-int test(char Hello, int x) {
-    print Hello;
 }

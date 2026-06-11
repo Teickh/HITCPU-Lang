@@ -6,6 +6,6 @@
 #include "struct.h"
 
 void parsing(TokenList *list, FileRegistry *registry, StringPool *pool, ASTTree *tree);
-void print_ast(FileRegistry *registry, ASTTree *tree, StringPool *pool, int level);
+void generate_ast_html(const char *filename, FileRegistry *registry, ASTTree *tree, StringPool *pool);
 
 #endif

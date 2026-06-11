@@ -1,7 +1,0 @@
-# ninja log v7
-31	104	8026790677392837	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/code_gen.c.obj	6bf294b837738408
-16	340	8026790677248554	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/lang.c.obj	abcd040d8044fc61
-27	357	8026790677358812	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/semantic_analysis.c.obj	bdd9632954041df3
-20	358	8026790677283701	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/lexer.c.obj	9909c49e6de8a2cd
-23	391	8026790677323706	CMakeFiles/lang.dir/HITCPU/HITCPUCustLang/parser.c.obj	d47fb9291ce0d8ed
-391	485	8026790680995236	lang.exe	7b7748de1f483976

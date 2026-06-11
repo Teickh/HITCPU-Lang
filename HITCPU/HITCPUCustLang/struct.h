@@ -138,22 +138,22 @@ typedef struct {
     int string_offset;
     SymbolType type;
     int data_type;
-    int stack_slot;
 } Symbol;
 
 typedef struct Scope {
     Symbol *symbols;
     int symbol_count;
     int symbol_capacity;
+
     int parent_scope_idx;
-} Scope;
+} SymbolTable;
 
 typedef struct {
-    Scope *scopes;
+    SymbolTable *scopes;
     int scope_count;
     int scope_capacity;
-    int root_scope_idx;
-} ScopeTree;
+    int stack;
+} ScopeStack;
 
 typedef enum {
     OP_NONE = 0,

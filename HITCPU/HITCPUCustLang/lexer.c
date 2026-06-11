@@ -17,16 +17,65 @@ int find_string_in_pool(StringPool *pool, const char *value) {
     return -1;
 }
 
-void print_tokens(TokenList *list, StringPool *pool) {
-    printf("\n--- Captured Tokens ---\n");
-    printf("%-10s | %-15s | %-10s | %-5s | %-5s\n", "Index", "Token Type", "Value", "Line", "Column");
-    printf("-----------------------------------------------------\n");
+void print_tokens_to_html(TokenList *list, StringPool *pool, const char *filename) {
+    FILE *html = fopen(filename, "w");
+    if (!html) {
+        fprintf(stderr, "Error: Could not create HTML file %s\n", filename);
+        return;
+    }
+
+    // Write HTML Boilerplate and CSS styling
+    fprintf(html, "<!DOCTYPE html>\n<html>\n<head>\n<title>Lexer Output</title>\n");
+    fprintf(html, "<style>\n");
+    fprintf(html, "  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 30px; background-color: #f7f9fa; color: #333; }\n");
+    fprintf(html, "  h2 { color: #2c3e50; border-bottom: 2px solid #34495e; padding-bottom: 8px; margin-top: 40px; }\n");
+    fprintf(html, "  table { width: 100%%; border-collapse: collapse; margin-top: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); background-color: #fff; }\n");
+    fprintf(html, "  th, td { padding: 12px 15px; text-align: left; border: 1px solid #e0e0e0; }\n");
+    fprintf(html, "  th { background-color: #34495e; color: #ffffff; font-weight: 600; }\n");
+    fprintf(html, "  tr:nth-child(even) { background-color: #f2f4f4; }\n");
+    fprintf(html, "  tr:hover { background-color: #eaf2f8; }\n");
+    fprintf(html, "  .mono { font-family: 'Courier New', Courier, monospace; font-weight: bold; }\n");
+    fprintf(html, "</style>\n</head>\n<body>\n");
+
+    // 1. Captured Tokens Table
+    fprintf(html, "<h2>Captured Tokens</h2>\n");
+    fprintf(html, "<table>\n  <tr>\n    <th>Index</th>\n    <th>Token Type</th>\n    <th>Value</th>\n    <th>Line</th>\n    <th>Column</th>\n  </tr>\n");
 
     for (int i = 0; i < list->count; i++) {
         Token t = list->items[i];
-        const char *token_next = &pool->data[t.value_offset];
-        printf("%-10d | %-15s | %-10s | %-5d | %-5d\n", i, token_type_to_string(t.type), token_next, t.line, t.column);
+        const char *token_val = &pool->data[t.value_offset];
+        
+        fprintf(html, "  <tr>\n");
+        fprintf(html, "    <td>%d</td>\n", i);
+        fprintf(html, "    <td>%s</td>\n", token_type_to_string(t.type));
+        // Using class "mono" to make raw token values stand out clearly
+        fprintf(html, "    <td class=\"mono\">%s</td>\n", token_val); 
+        fprintf(html, "    <td>%d</td>\n", t.line);
+        fprintf(html, "    <td>%d</td>\n", t.column);
+        fprintf(html, "  </tr>\n");
     }
+    fprintf(html, "</table>\n");
+
+    // 2. String Pool Table
+    fprintf(html, "<h2>String Pool Status</h2>\n");
+    fprintf(html, "<p><strong>Pool Size:</strong> %d / <strong>Pool Capacity:</strong> %d bytes</p>\n", pool->size, pool->capacity);
+    fprintf(html, "<table>\n  <tr>\n    <th style=\"width: 15%%;\">Offset</th>\n    <th>String Value</th>\n  </tr>\n");
+
+    int offset = 0;
+    while (offset < pool->size) {
+        const char *pool_str = &pool->data[offset];
+        fprintf(html, "  <tr>\n");
+        fprintf(html, "    <td>%d</td>\n", offset);
+        fprintf(html, "    <td class=\"mono\">\"%s\"</td>\n", pool_str);
+        fprintf(html, "  </tr>\n");
+        
+        offset += strlen(pool_str) + 1;
+    }
+    fprintf(html, "</table>\n");
+
+    fprintf(html, "\n</body>\n</html>\n");
+    fclose(html);
+    printf("HTML visualizer file successfully generated: %s\n", filename);
 }
 
 void add_token(TokenList *list, StringPool *pool, TokenType type, const char *value, int line, int column) {
@@ -94,7 +143,10 @@ void lexing(FILE *program, TokenList *list, StringPool *pool, int *total_lines) 
     int c;
     while ((c = fgetc(program)) != EOF) {
         if (isspace(c)) {
-            if (c == '\n') (*total_lines)++;
+            if (c == '\n') {
+                (*total_lines)++; 
+                column = 0;
+            }
             continue;
         }
         

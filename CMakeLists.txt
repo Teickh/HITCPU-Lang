@@ -16,6 +16,7 @@ add_executable(lang
 target_compile_options(lang PRIVATE 
     $<$<CONFIG:Debug>:-Wall -Wextra -g -fsanitize=address -fno-omit-frame-pointer>
     # Added -g to Release so you can still debug it!
+    $<$<CONFIG:VSDebug>:-march=native -g> 
     $<$<CONFIG:Release>:-O3 -march=native -g> 
 )
 

@@ -5,72 +5,159 @@
 #include "parser.h"
 #include "struct.h"
 
-void print_block(ASTTree *tree, ASTNode *node, StringPool *pool, int node_index, int level) {
-    if (node_index == -1 || node == NULL) return;
-
-    // 1. Print the indentation
-    for (int i = 0; i < level; i++) printf("  ");
-
-    // 2. Print the current node data
-    if (node->type == TOKEN_INT_LIT) {
-        printf("|-- [Number]: %d\n", node->data.number_value);
-    } else if (node->type == TOKEN_IDENTIFIER) {
-        printf("|-- [%s]: %s\n", 
-            token_type_to_string(node->type), 
-            &pool->data[node->data.string_offset]);
-    } else if (node->type == TOKEN_FUNCTION) {
-        printf("|-- [FUNCTION]: %s (Returns: %s)\n", 
-            &pool->data[node->data.function.name_string_offset],
-            token_type_to_string(node->data.function.return_type));
-    } else {
-        printf("|-- [%s]\n", token_type_to_string(node->type));
-    }
-
-    // 3. Traversal logic: Treat blocks and standard expressions distinctly
-    if (node->type == TOKEN_BLOCK) {
-        int total = node->data.block.statement_count;
-
-        for (int i = 0; i < total; i++) {
-            int child_index = node->data.block.statement_indices[i];
-            // Render each statement inside the block at the next indentation level
-            print_block(tree, &tree->nodes[child_index], pool, child_index, level + 1);
-            
-            // Keeps your global layout dividers clean
-            if (level == 0 && i < total - 1) {
-                printf("---------------------------------------\n");
-            }
+// Helper to handle HTML escaping for safety (if variable names contain <, >, &, etc.)
+void fprintf_escaped(FILE *out, const char *str) {
+    while (*str) {
+        switch (*str) {
+            case '<': fprintf(out, "&lt;"); break;
+            case '>': fprintf(out, "&gt;"); break;
+            case '&': fprintf(out, "&amp;"); break;
+            default:  fputc(*str, out); break;
         }
-    } else if (node->type == TOKEN_PARAM) {
-        int total = node->data.param.param_count;
-
-        for (int i = 0; i < total; i++) {
-            int child_index = node->data.block.statement_indices[i];
-            // Render each statement inside the block at the next indentation level
-            print_block(tree, &tree->nodes[child_index], pool, child_index, level + 1);
-            
-            // Keeps your global layout dividers clean
-            if (level == 0 && i < total - 1) {
-                printf("---------------------------------------\n");
-            }
-        }
-        
-    } else {
-        // Only visit standard left and right binary children if we aren't iterating a block container
-        if (node->left != -1)  print_block(tree, &tree->nodes[node->left], pool, node->left, level + 1);
-        if (node->right != -1) print_block(tree, &tree->nodes[node->right], pool, node->right, level + 1);
+        str++;
     }
 }
 
-void print_ast(FileRegistry *registry, ASTTree *tree, StringPool *pool, int level) {
-    for (int i = 0; i < registry->function_count; i++) {
-        int node_index = registry->global_functions[i];
-        print_block(tree, &tree->nodes[registry->global_functions[i]], pool, node_index, level);
+void print_block_html(FILE *out, ASTTree *tree, ASTNode *node, StringPool *pool, int node_index) {
+    if (node_index == -1 || node == NULL) return;
+
+    // Check if this node has children to determine if we should make it collapsible
+    int has_children = 0;
+    if (node->type == TOKEN_BLOCK && node->data.block.statement_count > 0) has_children = 1;
+    else if (node->type == TOKEN_PARAM && node->data.param.param_count > 0) has_children = 1;
+    else if (node->type != TOKEN_BLOCK && node->type != TOKEN_PARAM && (node->left != -1 || node->right != -1)) has_children = 1;
+
+    // Open HTML list item and layout container
+    fprintf(out, "<li>\n");
+    if (has_children) {
+        fprintf(out, "  <details open>\n  <summary>");
+    } else {
+        fprintf(out, "  <span class='leaf-content'>");
     }
 
-    printf("\n--- AST debug ---\n");
-    for (int j = 0; j < tree->count; j++) {
-        printf("Node %d: Type = %s\n", j, token_type_to_string(tree->nodes[j].type));
+    // Render the node contents based on type
+    fprintf(out, "<span class='node-tag node-%s'>%s</span> ", 
+            token_type_to_string(node->type), token_type_to_string(node->type));
+
+    if (node->type == TOKEN_INT_LIT) {
+        fprintf(out, "<span class='node-val'>Value: %d</span>", node->data.number_value);
+    } else if (node->type == TOKEN_IDENTIFIER) {
+        fprintf(out, "<span class='node-val'>");
+        fprintf_escaped(out, &pool->data[node->data.string_offset]);
+        fprintf(out, "</span>");
+    } else if (node->type == TOKEN_FUNCTION) {
+        fprintf(out, "<span class='node-val'>Name: ");
+        fprintf_escaped(out, &pool->data[node->data.function.name_string_offset]);
+        fprintf(out, " (Returns: %s)</span>", token_type_to_string(node->data.function.return_type));
     }
+
+    // Close the summary/content container
+    if (has_children) {
+        fprintf(out, "</summary>\n  <ul>\n");
+    } else {
+        fprintf(out, "</span>\n");
+    }
+
+    // Traversal logic
+    if (node->type == TOKEN_BLOCK) {
+        int total = node->data.block.statement_count;
+        for (int i = 0; i < total; i++) {
+            int child_index = node->data.block.statement_indices[i];
+            print_block_html(out, tree, &tree->nodes[child_index], pool, child_index);
+        }
+    } else if (node->type == TOKEN_PARAM) {
+        int total = node->data.param.param_count;
+        for (int i = 0; i < total; i++) {
+            // FIXED: Using parameter mapping structure instead of block mapping
+            int child_index = node->data.param.param_indices[i]; 
+            print_block_html(out, tree, &tree->nodes[child_index], pool, child_index);
+        }
+    } else {
+        if (node->left != -1)  print_block_html(out, tree, &tree->nodes[node->left], pool, node->left);
+        if (node->right != -1) print_block_html(out, tree, &tree->nodes[node->right], pool, node->right);
+    }
+
+    // Close open HTML groupings
+    if (has_children) {
+        fprintf(out, "  </ul>\n  </details>\n");
+    }
+    fprintf(out, "</li>\n");
+}
+
+void generate_ast_html(const char *filename, FileRegistry *registry, ASTTree *tree, StringPool *pool) {
+    FILE *out = fopen(filename, "w");
+    if (!out) {
+        perror("Failed to open output HTML file");
+        return;
+    }
+
+    // Write the HTML header and CSS styling (Included styles for the global container)
+    fprintf(out, "<!DOCTYPE html>\n<html>\n<head>\n<style>\n");
+    fprintf(out, "body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1e1e2e; color: #cdd6f4; padding: 20px; }\n");
+    fprintf(out, "h1 { color: #f5c2e7; border-bottom: 2px solid #45475a; padding-bottom: 10px; }\n");
+    fprintf(out, "h2 { color: #b4befe; margin-top: 20px; font-size: 1.2em; border-left: 3px solid #b4befe; padding-left: 8px; }\n");
+    fprintf(out, "ul { list-style-type: none; padding-left: 24px; position: relative; }\n");
+    fprintf(out, "ul::before { content: ''; position: absolute; left: 10px; top: 0; bottom: 0; width: 1px; background: #45475a; }\n");
+    fprintf(out, "li { margin: 6px 0; position: relative; }\n");
+    fprintf(out, "li::before { content: ''; position: absolute; left: -14px; top: 12px; width: 10px; height: 1px; background: #45475a; }\n");
+    fprintf(out, "summary { cursor: pointer; padding: 4px 8px; background: #313244; border-radius: 4px; display: inline-block; transition: background 0.2s; }\n");
+    fprintf(out, "summary:hover { background: #45475a; }\n");
+    fprintf(out, ".leaf-content { padding: 4px 8px; background: #181825; border-radius: 4px; display: inline-block; }\n");
+    fprintf(out, ".node-tag { font-family: monospace; font-weight: bold; font-size: 0.85em; padding: 2px 6px; border-radius: 3px; background: #89b4fa; color: #11111b; }\n");
+    fprintf(out, ".node-val { font-family: monospace; color: #a6e3a1; margin-left: 8px; }\n");
+    fprintf(out, "/* Custom type badge accents */\n");
+    fprintf(out, ".node-TOKEN_FUNCTION { background: #cba6f7; }\n");
+    fprintf(out, ".node-TOKEN_BLOCK { background: #fab387; }\n");
+    fprintf(out, ".node-TOKEN_GLOBAL_VAR { background: #f9e2af; }\n"); // Accent color for global variables
+    fprintf(out, "</style>\n</head>\n<body>\n");
+
+    fprintf(out, "<h1>AST Visualizer</h1>\n");
+    fprintf(out, "<p style='color: #a6adc8;'>File: %s</p>\n", registry->filename ? registry->filename : "Unknown");
+
+    // ----------------------------------------------------
+    // Section 1: Global Variables
+    // ----------------------------------------------------
+    fprintf(out, "<h2>Global Variables (%d)</h2>\n", registry->global_var_count);
+    if (registry->global_var_count == 0) {
+        fprintf(out, "<p style='font-style: italic; color: #585b70; padding-left: 10px;'>No global variables declared.</p>\n");
+    } else {
+        fprintf(out, "<div class='tree'>\n<ul>\n");
+        for (int i = 0; i < registry->global_var_count; i++) {
+            int node_index = registry->global_variables[i];
+            print_block_html(out, tree, &tree->nodes[node_index], pool, node_index);
+        }
+        fprintf(out, "</ul>\n</div>\n");
+    }
+
+    // ----------------------------------------------------
+    // Section 2: Global Functions
+    // ----------------------------------------------------
+    fprintf(out, "<h2>Functions (%d)</h2>\n", registry->function_count);
+    if (registry->function_count == 0) {
+        fprintf(out, "<p style='font-style: italic; color: #585b70; padding-left: 10px;'>No functions declared.</p>\n");
+    } else {
+        fprintf(out, "<div class='tree'>\n<ul>\n");
+        for (int i = 0; i < registry->function_count; i++) {
+            int node_index = registry->global_functions[i];
+            
+            // Highlight the entry point if this function is the main function
+            if (node_index == registry->main_function_node_index) {
+                fprintf(out, "<div style='border: 1px dashed #a6e3a1; padding: 4px; border-radius: 6px; margin-bottom: 8px;'>\n");
+                fprintf(out, "<span style='font-size: 0.8em; color: #a6e3a1; font-weight: bold; margin-left: 10px;'>[Program Entry Point]</span>\n");
+            }
+
+            print_block_html(out, tree, &tree->nodes[node_index], pool, node_index);
+
+            if (node_index == registry->main_function_node_index) {
+                fprintf(out, "</div>\n");
+            }
+        }
+        fprintf(out, "</ul>\n</div>\n");
+    }
+
+    fprintf(out, "</body>\n</html>\n");
+    fclose(out);
+    printf("AST visualizer file successfully generated: %s\n", filename);
 }
 
 int parse_factor(ASTTree *tree, TokenList *list, int *i, StringPool *pool);

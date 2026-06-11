@@ -51,10 +51,11 @@ int main(int argc, char * argv[]) {
         return 1;
     }
 
+    int files_capacity = argc - 1;
     ProgramList programs = {
         .count = 0,
-        .capacity = argc - 1,
-        .files = malloc(programs.capacity * sizeof(FileRegistry)),
+        .capacity = files_capacity,
+        .files = malloc(files_capacity * sizeof(FileRegistry)),
         .main_file_index = -1,
         .main_function_index = -1
     };
@@ -72,7 +73,12 @@ int main(int argc, char * argv[]) {
         programs.count++;
     }
 
-    Scope current_scope = {0};
+    ScopeStack current_scope = { 
+        .scope_capacity = 8, 
+        .scope_count = 0, 
+        .scopes = malloc(8 * sizeof(SymbolTable)),
+        .stack = -1
+    };
     for (int i = 0; i < programs.count; i++) {
         FILE *program = open_file(argv[i + 1]);
 
@@ -86,13 +92,12 @@ int main(int argc, char * argv[]) {
         int total_lines = 0;
 
         lexing(program, &list, &pool, &total_lines);
-        print_tokens(&list, &pool); 
+        print_tokens_to_html(&list, &pool, "tokens.html");
 
         ASTTree tree = { .capacity = 8, .count = 0, .nodes = malloc(8 * sizeof(ASTNode)) };
 
         parsing(&list, &programs.files[i], &pool, &tree);
-        printf("\n--- AST Structure ---\n");
-        print_ast(&programs.files[i], &tree, &pool, 0);
+        generate_ast_html("ast.html", &programs.files[i], &tree, &pool);
 
         free(list.items);
 
@@ -106,6 +111,7 @@ int main(int argc, char * argv[]) {
         fclose(program);
         // fclose(program_assembly);
         free(pool.data);
+        free(tree.nodes);
         // free_ast(tree);
     }
 

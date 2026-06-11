@@ -1,3 +1,0 @@
-D:/personal_projects/Minecraft_CPU/build-debug/CMakeFiles/lang.dir
-D:/personal_projects/Minecraft_CPU/build-debug/CMakeFiles/edit_cache.dir
-D:/personal_projects/Minecraft_CPU/build-debug/CMakeFiles/rebuild_cache.dir
