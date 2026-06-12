@@ -206,7 +206,6 @@ void lexing(FILE *program, TokenList *list, StringPool *pool, int *total_lines) 
                 case '+': add_token(list, pool, TOKEN_PLUS, "+", *total_lines, column); break;
                 case '-': add_token(list, pool, TOKEN_MINUS, "-", *total_lines, column); break;
                 case '*': add_token(list, pool, TOKEN_MULTIPLY, "*", *total_lines, column); break;
-                case '/': add_token(list, pool, TOKEN_DIVIDE, "/", *total_lines, column); break;
                 case '(': add_token(list, pool, TOKEN_LPAREN, "(", *total_lines, column); break;
                 case ')': add_token(list, pool, TOKEN_RPAREN, ")", *total_lines, column); break;
                 case '>': add_token(list, pool, TOKEN_GREATER_THAN, ">", *total_lines, column); break;
@@ -216,6 +215,19 @@ void lexing(FILE *program, TokenList *list, StringPool *pool, int *total_lines) 
                 case '[': add_token(list, pool, TOKEN_LBRACKET, "[", *total_lines, column); break;
                 case ']': add_token(list, pool, TOKEN_RBRACKET, "]", *total_lines, column); break;
                 case ',': add_token(list, pool, TOKEN_COMMA, ",", *total_lines, column); break;
+                case '/': {
+                    next = fgetc(program);
+                    if (next != '/') {
+                        ungetc(next, program);
+                        add_token(list, pool, TOKEN_DIVIDE, "/", *total_lines, column); break;
+                    }
+
+                    while ((next = fgetc(program)) != '\n' && next != EOF) {
+                        column++;
+                    }
+
+                    break;
+                }
                 case ';': 
                     add_token(list, pool, TOKEN_SEMICOLON, ";", *total_lines, column);
                     column = -1;
@@ -223,15 +235,14 @@ void lexing(FILE *program, TokenList *list, StringPool *pool, int *total_lines) 
                 case '"': {
                     char buffer[1024];
                     int j = 0;
-                    int next_char;
 
-                    while ((next_char = fgetc(program)) != '"' && next_char != EOF) {
+                    while ((next = fgetc(program)) != '"' && next != EOF) {
                         if (j < 1023) {
-                            buffer[j++] = (char)next_char;
+                            buffer[j++] = (char)next;
                         }
                     }
 
-                    if (next_char == EOF) {
+                    if (next == EOF) {
                         printf("Missing double quotes at line %d\n", *total_lines + 1);
                         exit(1);
                     }

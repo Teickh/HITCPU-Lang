@@ -74,10 +74,14 @@ int main(int argc, char * argv[]) {
     }
 
     ScopeStack current_scope = { 
-        .scope_capacity = 8, 
-        .scope_count = 0, 
+        .scope_capacity = 8,
         .scopes = malloc(8 * sizeof(SymbolTable)),
         .stack = -1
+    };
+    SymbolLists symbol_lists = {
+        .capacity = 8,
+        .count = 0,
+        .historical_scopes = malloc(8 * sizeof(SymbolTable))
     };
     for (int i = 0; i < programs.count; i++) {
         FILE *program = open_file(argv[i + 1]);
@@ -101,7 +105,7 @@ int main(int argc, char * argv[]) {
 
         free(list.items);
 
-        analyse(&programs.files[i], &tree, &current_scope);
+        analyse(&programs.files[i], &tree, &current_scope, &symbol_lists);
 
         // int node_count = 0;
         // generate_code(ast, program_assembly, &regs);

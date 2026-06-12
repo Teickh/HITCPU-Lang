@@ -464,6 +464,10 @@ int parse_block(TokenList *list, StringPool *pool, int *i, ASTTree *tree) {
 
             break;
 
+        // case TOKEN_COMMENT:
+        //     (*i)++;
+        //     break;
+
         default:
             printf("Unknown token index %d at line %d column %d",
                 (*i),

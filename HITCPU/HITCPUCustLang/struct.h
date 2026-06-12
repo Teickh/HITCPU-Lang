@@ -37,6 +37,7 @@
     X(TOKEN_BLOCK,          "BLOCK")        \
     X(TOKEN_FUNCTION,       "FUNCTION")     \
     X(TOKEN_PARAM,          "PARAM")        \
+    // X(TOKEN_COMMENT,        "COMMENT")      \
 
 typedef enum {
     #define AS_ENUM(ENUM, STR) ENUM,
@@ -140,20 +141,23 @@ typedef struct {
     int data_type;
 } Symbol;
 
-typedef struct Scope {
+typedef struct {
     Symbol *symbols;
     int symbol_count;
     int symbol_capacity;
-
-    int parent_scope_idx;
 } SymbolTable;
 
 typedef struct {
     SymbolTable *scopes;
-    int scope_count;
     int scope_capacity;
     int stack;
 } ScopeStack;
+
+typedef struct {
+    SymbolTable *historical_scopes;
+    int count;
+    int capacity;
+} SymbolLists;
 
 typedef enum {
     OP_NONE = 0,

@@ -1,17 +1,15 @@
-int result;
-int scale;
+int target;
+
+int calculate() {
+    // This 'target' is completely independent of the global 'target'
+    int target = 50; 
+    print target;
+    return 0;
+}
 
 int main() {
-    scale = 2;
-    result = 10 + 5 * scale;
-    
-    int y = result + 1;
-    
-    int scale = 100;
-    
-    print result;
-    print scale;
-    print y;
-
+    target = 100; // Refers to the global variable
+    int result = calculate();
+    print target; // Should still print the global value (100)
     return 0;
 }
