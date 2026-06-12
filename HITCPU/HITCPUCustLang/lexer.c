@@ -222,10 +222,12 @@ void lexing(FILE *program, TokenList *list, StringPool *pool, int *total_lines) 
                         add_token(list, pool, TOKEN_DIVIDE, "/", *total_lines, column); break;
                     }
 
-                    while ((next = fgetc(program)) != '\n' && next != EOF) {
-                        column++;
+                    while ((next = fgetc(program)) != '\n' && next != EOF) {}
+                    
+                    if (next == '\n') {
+                        (*total_lines)++;
+                        column = -1; // Set to -1 so the column++ at the end of the main loop makes it 0
                     }
-
                     break;
                 }
                 case ';': 

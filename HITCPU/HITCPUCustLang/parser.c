@@ -252,6 +252,8 @@ int create_node(ASTTree *tree, Token token, StringPool *pool) {
         case TOKEN_EOF:
         case TOKEN_BLOCK:
         case TOKEN_PARAM:
+        case TOKEN_FUNCTION_CALL:
+        case TOKEN_ARG_LIST:
             break;
 
         default:
@@ -292,11 +294,115 @@ int merge_node(ASTTree *tree, TokenList *list, int *i, int index, char mode, Str
     return current_node;
 }
 
-int parse_factor(ASTTree *tree, TokenList *list, int *i, StringPool *pool) {
-    int current_node = create_node(tree, list->items[*i], pool);
-    (*i)++;
+int parse_argument_list(ASTTree *tree, TokenList *list, StringPool *pool, int *i) {
+    Token arg_list_token = { .type = TOKEN_ARG_LIST, .value_offset = 0 };
+    int arg_list_node = create_node(tree, arg_list_token, pool);
 
-    return current_node;
+    int capacity = 8;
+    int count = 0;
+    int *arguments = malloc(capacity * sizeof(int));
+    if (!arguments) { printf("Arguments failed to allocate. Out of memory\n"); exit(1); }
+    while (*i < list->count && list->items[(*i)].type != TOKEN_RPAREN) {
+        if (count >= capacity) {
+            capacity *= 2;
+            
+            int *temp = realloc(arguments, capacity * sizeof(int));
+            if (!temp) { printf("Arguments failed to reallocate. Out of memory\n"); exit(1); }
+            arguments = temp;
+        }
+        
+        int expr_node_idx =  parse_expression(tree, list, i, pool);
+        if (expr_node_idx == -1) {
+            if (count > 0) {
+                printf("Expected expression in argument list at index %d line %d column %d\n",
+                    (*i),
+                    list->items[*i].line,
+                    list->items[*i].column);
+                exit(1);
+            }
+            break;
+        }
+        
+        arguments[count++] = expr_node_idx;
+        
+        if (list->items[(*i)].type == TOKEN_COMMA) {
+            (*i)++;
+
+            if (list->items[*i].type == TOKEN_RPAREN) {
+                printf("Trailing comma not allowed in parameter list at index %d line %d column %d\n",
+                    (*i),
+                    list->items[*i].line,
+                    list->items[*i].column);
+                exit(1);
+            }
+        } else if (list->items[(*i)].type != TOKEN_RPAREN) {
+            printf("Expected ',' or ')' at index %d line %d column %d\n",
+                (*i),
+                list->items[*i].line,
+                list->items[*i].column);
+            exit(1);
+        }
+    }
+
+    if (count > 0) {
+        arguments = realloc(arguments, count *sizeof(int));
+    } else {
+        free(arguments);
+        arguments = NULL;
+    }
+
+    tree->nodes[arg_list_node].data.param.param_indices = arguments;
+    tree->nodes[arg_list_node].data.param.param_count = count;
+    
+    return arg_list_node;
+}
+
+int parse_factor(ASTTree *tree, TokenList *list, int *i, StringPool *pool) {
+    Token current_token = list->items[(*i)];
+
+    if (current_token.type == TOKEN_INT_LIT || current_token.type == TOKEN_CHAR_STRING) {
+        int current_node = create_node(tree, list->items[*i], pool);
+        (*i)++;
+
+        return current_node;
+    }
+    
+    if (current_token.type == TOKEN_IDENTIFIER) {
+        (*i)++;
+
+        if (list->items[*i].type == TOKEN_LPAREN) {
+            (*i)++;
+
+            Token call_token = { .type = TOKEN_FUNCTION_CALL, .value_offset = current_token.value_offset };
+            int call_node = create_node(tree, call_token, pool);
+
+            int args_node = parse_argument_list(tree, list, pool, i);
+
+            if (list->items[*i].type != TOKEN_RPAREN) {
+                printf("Expected ')' after arguments at index %d\n", *i);
+                exit(1);
+            }
+            (*i)++;
+
+            safe_set_right(tree, call_node, args_node);
+
+            return call_node;
+        } 
+        else {
+            return create_node(tree, current_token, pool);
+        }
+    }
+
+    if (current_token.type == TOKEN_LPAREN) {
+        (*i)++; // Consume '('
+        int node = parse_expression(tree, list, i, pool); // Loop back up to top level expression!
+        if (list->items[*i].type != TOKEN_RPAREN) { printf("Expected ')'\n"); exit(1); }
+        (*i)++; // Consume ')'
+        return node;
+    }
+
+    printf("Unexpected token in factor parsing at index %d\n", *i);
+    exit(1);
 }
 
 int parse_term(ASTTree *tree, TokenList *list, int *i, StringPool *pool) {
@@ -343,23 +449,27 @@ int parse_block(TokenList *list, StringPool *pool, int *i, ASTTree *tree) {
     int current_node = -1;
     switch (list->items[(*i)].type) {
         case TOKEN_IDENTIFIER: {
-            Token ident_token = list->items[(*i)];
-            (*i)++;
+            if (peek(list, *i, 1) == TOKEN_ASSIGN) {
+                Token ident_token = list->items[(*i)];
+                (*i)++;
 
-            if (list->items[(*i)].type != TOKEN_ASSIGN) {
-                printf("Missing equals at index %d line %d Column %d",
-                    (*i),
+                current_node = create_node(tree, list->items[(*i)], pool);
+                (*i)++;
+
+                safe_set_left(tree, current_node, create_node(tree, ident_token, pool));
+                safe_set_right(tree, current_node, parse_expression(tree, list, i, pool));
+
+                check_semicolon(list->items, list->items[(*i)].column, list->items[(*i)].line, i);
+            } else if (peek(list, *i, 1) == TOKEN_LPAREN) {
+                current_node = parse_factor(tree, list, i, pool);
+                
+                check_semicolon(list->items, list->items[(*i)].column, list->items[(*i)].line, i);
+            } else {
+                printf("Error: Bare identifier statement not allowed at line %d column %d\n",
                     list->items[(*i)].line,
                     list->items[(*i)].column);
                 exit(1);
             }
-            current_node = create_node(tree, list->items[(*i)], pool);
-            (*i)++;
-
-            safe_set_left(tree, current_node, create_node(tree, ident_token, pool));
-            safe_set_right(tree, current_node, parse_expression(tree, list, i, pool));
-
-            check_semicolon(list->items, list->items[(*i)].column, list->items[(*i)].line, i);
 
             break;
         }
@@ -463,10 +573,6 @@ int parse_block(TokenList *list, StringPool *pool, int *i, ASTTree *tree) {
             check_semicolon(list->items, list->items[(*i)].column, list->items[(*i)].line, i);
 
             break;
-
-        // case TOKEN_COMMENT:
-        //     (*i)++;
-        //     break;
 
         default:
             printf("Unknown token index %d at line %d column %d",
@@ -664,8 +770,6 @@ int parse_program(FileRegistry *registry, ASTTree *tree, TokenList *list, String
     }
     (*i)++;
     
-    // int param_list_idx = parse_parameter_list(tree, list, pool, i);
-    // tree->nodes[func_node_index].data.param.param_indices 
     safe_set_left(tree, func_node_index, parse_parameter_list(tree, list, pool, i));
     (*i)++;
 

@@ -37,7 +37,8 @@
     X(TOKEN_BLOCK,          "BLOCK")        \
     X(TOKEN_FUNCTION,       "FUNCTION")     \
     X(TOKEN_PARAM,          "PARAM")        \
-    // X(TOKEN_COMMENT,        "COMMENT")      \
+    X(TOKEN_ARG_LIST,       "ARGUMENTS")    \
+    X(TOKEN_FUNCTION_CALL,  "FUNCTION CALL")\
 
 typedef enum {
     #define AS_ENUM(ENUM, STR) ENUM,

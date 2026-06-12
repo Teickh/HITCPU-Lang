@@ -24,7 +24,8 @@ int create_new_scope(ScopeStack *scope_stack) {
     return scope_stack->stack;
 }
 
-void add_symbol(SymbolTable *table, SymbolType type, int string_offset, TokenType data_type) {
+void add_symbol(ScopeStack *scope_stack, int current_scope_idx, SymbolType type, int string_offset, TokenType data_type) {
+    SymbolTable *table = &scope_stack->scopes[current_scope_idx];
     if (table->symbol_count >= table->symbol_capacity) {
         table->symbol_capacity *= 2;
 
@@ -57,7 +58,6 @@ int lookup_symbol(ScopeStack *scope_stack, int current_scope_idx, int string_off
     return -1;
 }
 
-// Deep copy helper function to preserve historical scopes safely
 void archive_scope_history(SymbolLists *symbol_lists, SymbolTable *source_table) {
     if (symbol_lists->count >= symbol_lists->capacity) {
         symbol_lists->capacity = symbol_lists->capacity == 0 ? 4 : symbol_lists->capacity * 2;
@@ -70,7 +70,6 @@ void archive_scope_history(SymbolLists *symbol_lists, SymbolTable *source_table)
         symbol_lists->historical_scopes = temp;
     }
 
-    // Allocate brand-new heap space for historical symbols to avoid cross-contamination
     SymbolTable *dest_table = &symbol_lists->historical_scopes[symbol_lists->count++];
     dest_table->symbol_count = source_table->symbol_count;
     dest_table->symbol_capacity = source_table->symbol_capacity;
@@ -81,7 +80,17 @@ void archive_scope_history(SymbolLists *symbol_lists, SymbolTable *source_table)
     }
 }
 
-void analyse_parameters(ASTTree *tree, int param_node_idx, ScopeStack *scope_stack, int current_scope_idx) {
+// Helper to safely write HTML logs
+void log_html_row(FILE *html_file, const char *action, const char *status_class, const char *details, int line, int col) {
+    if (!html_file) return;
+    fprintf(html_file, "<tr>\n");
+    fprintf(html_file, "  <td><span class=\"badge %s\">%s</span></td>\n", status_class, action);
+    fprintf(html_file, "  <td>%s</td>\n", details);
+    fprintf(html_file, "  <td>Line %d, Col %d</td>\n", line, col);
+    fprintf(html_file, "</tr>\n");
+}
+
+void analyse_parameters(ASTTree *tree, int param_node_idx, ScopeStack *scope_stack, int current_scope_idx, FILE *html_file) {
     if (param_node_idx == -1) return;
 
     ASTNode *param_node = &tree->nodes[param_node_idx];
@@ -89,25 +98,27 @@ void analyse_parameters(ASTTree *tree, int param_node_idx, ScopeStack *scope_sta
         if (param_node->left != -1) {
             ASTNode *ident_node = &tree->nodes[param_node->left];
 
-            printf("Parameter: Registering input %s variable with string_offset %d. Line %d Column %d\n",
-                token_type_to_string(ident_node->type),
-                ident_node->data.string_offset,
-                param_node->line,
-                param_node->column);
+            char detail_msg[256];
+            snprintf(detail_msg, sizeof(detail_msg), "Registering input <strong>%s</strong> variable with string_offset <code>%d</code>.",
+                     token_type_to_string(ident_node->type), ident_node->data.string_offset);
+            
+            log_html_row(html_file, "Parameter", "info", detail_msg, param_node->line, param_node->column);
 
-            add_symbol(&scope_stack->scopes[current_scope_idx], SYMBOL_LOCAL, ident_node->data.string_offset, ident_node->type);
+            add_symbol(scope_stack, current_scope_idx, SYMBOL_LOCAL, ident_node->data.string_offset, ident_node->type);
         }
     }
 }
 
-void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_lists, ScopeStack *scope_stack, int current_scope_idx, int is_function_block, SymbolType symbol_type) {
+void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_lists, ScopeStack *scope_stack, int current_scope_idx, int is_function_block, SymbolType symbol_type, FILE *html_file) {
     if (current_node_idx == -1) return;
 
     ASTNode *current_node = &tree->nodes[current_node_idx];
     int symbol_exists = 0;
+    char detail_msg[512];
+
     switch (current_node->type) {
         case TOKEN_FUNCTION: {
-            add_symbol(&scope_stack->scopes[current_scope_idx], SYMBOL_FUNCTION, tree->nodes[current_node_idx].data.string_offset, tree->nodes[current_node_idx].data.variable_type);
+            add_symbol(scope_stack, current_scope_idx, SYMBOL_FUNCTION, tree->nodes[current_node_idx].data.string_offset, tree->nodes[current_node_idx].data.variable_type);
             current_scope_idx = create_new_scope(scope_stack);
 
             int param_list_idx = current_node->left;
@@ -116,13 +127,13 @@ void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_list
 
                 if (param_node->type == TOKEN_PARAM) {
                     for (int i = 0; i < param_node->data.param.param_count; i++) {
-                        analyse_parameters(tree, param_node->data.param.param_indices[i], scope_stack, current_scope_idx);
+                        analyse_parameters(tree, param_node->data.param.param_indices[i], scope_stack, current_scope_idx, html_file);
                     }
                 }
             }
             
             if (current_node->right != -1) {
-                analyse_block(tree, current_node->right, symbol_lists, scope_stack, current_scope_idx, 1, symbol_type);
+                analyse_block(tree, current_node->right, symbol_lists, scope_stack, current_scope_idx, 1, symbol_type, html_file);
             }
             
             archive_scope_history(symbol_lists, &scope_stack->scopes[current_scope_idx]);
@@ -141,7 +152,7 @@ void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_list
             int total = current_node->data.block.statement_count;
             int *stmts = current_node->data.block.statement_indices;
             for (int i = 0; i < total; i++) {
-                analyse_block(tree, stmts[i], symbol_lists, scope_stack, current_scope_idx, 0, symbol_type);
+                analyse_block(tree, stmts[i], symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file);
             }
             
             if (created_new) {
@@ -153,17 +164,18 @@ void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_list
         }
 
         case TOKEN_IDENTIFIER: {
-            printf("Variable Usage: Verifying variable %d exists to read its value. Line %d Column %d\n", 
-                    current_node->data.string_offset,
-                    current_node->line,
-                    current_node->column);
+            snprintf(detail_msg, sizeof(detail_msg), "Verifying variable <code>%d</code> exists to read value.", current_node->data.string_offset);
+            log_html_row(html_file, "Usage Check", "warning", detail_msg, current_node->line, current_node->column);
 
             symbol_exists = lookup_symbol(scope_stack, current_scope_idx, current_node->data.string_offset);
             
             if (symbol_exists == -1) {
-                printf("Error: variable hasn't been initialised. Line %d Column %d",
-                    current_node->line,
-                    current_node->column);
+                snprintf(detail_msg, sizeof(detail_msg), "<strong>Fatal Error:</strong> Variable <code>%d</code> has not been initialized!", current_node->data.string_offset);
+                log_html_row(html_file, "Error", "danger", detail_msg, current_node->line, current_node->column);
+                
+                // Close tags cleanly before exiting
+                fprintf(html_file, "</table></div></body></html>\n");
+                fclose(html_file);
                 exit(1);
             }
             break;
@@ -177,41 +189,41 @@ void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_list
                 ASTNode *identification_node = &tree->nodes[assign_node->left];
                 
                 symbol_exists = lookup_symbol(scope_stack, current_scope_idx, identification_node->data.string_offset);
-                if (symbol_exists != -1) {
-                    printf("Error: variable has already been initialised. Line %d Column %d\n",
-                        tree->nodes[current_node->left].line,
-                        tree->nodes[current_node->left].column);
+                if (symbol_exists != -1 && symbol_exists == current_scope_idx) {
+                    snprintf(detail_msg, sizeof(detail_msg), "<strong>Fatal Error:</strong> Variable <code>%d</code> has already been declared in this scope.", identification_node->data.string_offset);
+                    log_html_row(html_file, "Error", "danger", detail_msg, identification_node->line, identification_node->column);
+                    fprintf(html_file, "</table></div></body></html>\n");
+                    fclose(html_file);
                     exit(1);
                 }
             
-                printf("Declaration: Registering new %s variable with string_offset %d. Line %d Column %d\n", 
-                    token_type_to_string(identification_node->data.variable_type),
-                    identification_node->data.string_offset,
-                    identification_node->line,
-                    identification_node->column);
+                snprintf(detail_msg, sizeof(detail_msg), "Registering new <strong>%s</strong> variable with string_offset <code>%d</code>.", 
+                         token_type_to_string(current_node->data.variable_type), identification_node->data.string_offset);
+                log_html_row(html_file, "Declaration", "success", detail_msg, identification_node->line, identification_node->column);
 
-                symbol_type = SYMBOL_LOCAL;
-                add_symbol(&scope_stack->scopes[current_scope_idx], symbol_type, identification_node->data.string_offset, identification_node->data.variable_type);
+                symbol_type = (current_scope_idx == 0) ? SYMBOL_GLOBAL : SYMBOL_LOCAL;
+                add_symbol(scope_stack, current_scope_idx, symbol_type, identification_node->data.string_offset, current_node->data.variable_type);
 
                 if (assign_node->right != -1) {
-                    analyse_block(tree, assign_node->right, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type);
+                    analyse_block(tree, assign_node->right, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file);
                 }
             } else {
-                symbol_exists = lookup_symbol(scope_stack, current_scope_idx, tree->nodes[current_node->left].data.string_offset);
+                ASTNode *target_node = &tree->nodes[current_node->left];
+                symbol_exists = lookup_symbol(scope_stack, current_scope_idx, target_node->data.string_offset);
                 if (symbol_exists != -1) {
-                    printf("Error: variable has already been initialised. Line %d Column %d\n",
-                        tree->nodes[current_node->left].line,
-                        tree->nodes[current_node->left].column);
+                    snprintf(detail_msg, sizeof(detail_msg), "<strong>Fatal Error:</strong> Variable <code>%d</code> has already been initialized.", target_node->data.string_offset);
+                    log_html_row(html_file, "Error", "danger", detail_msg, target_node->line, target_node->column);
+                    fprintf(html_file, "</table></div></body></html>\n");
+                    fclose(html_file);
                     exit(1);
                 }
                 
-                printf("Declaration: Registering new %s variable with string_offset %d. Line %d Column %d\n",
-                    token_type_to_string(tree->nodes[current_node->left].data.variable_type),
-                    tree->nodes[current_node->left].data.string_offset,
-                    tree->nodes[current_node->left].line,
-                    tree->nodes[current_node->left].column);
+                snprintf(detail_msg, sizeof(detail_msg), "Registering new <strong>%s</strong> variable with string_offset <code>%d</code>.",
+                         token_type_to_string(current_node->data.variable_type), target_node->data.string_offset);
+                log_html_row(html_file, "Declaration", "success", detail_msg, target_node->line, target_node->column);
 
-                add_symbol(&scope_stack->scopes[current_scope_idx], symbol_type, tree->nodes[current_node->left].data.string_offset, current_node->data.variable_type);
+                symbol_type = (current_scope_idx == 0) ? SYMBOL_GLOBAL : SYMBOL_LOCAL;
+                add_symbol(scope_stack, current_scope_idx, symbol_type, target_node->data.string_offset, current_node->data.variable_type);
             }
             break;
         }
@@ -220,39 +232,68 @@ void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_list
             int identification_node_index = current_node->left;
             ASTNode *identification_node = &tree->nodes[identification_node_index];
 
-            printf("Assignment: Checking if variable %d exists in symbol table... Line %d Column %d\n",
-                    identification_node->data.string_offset,
-                    identification_node->line,
-                    identification_node->column);
+            snprintf(detail_msg, sizeof(detail_msg), "Checking if variable <code>%d</code> exists in symbol table for assignment...", identification_node->data.string_offset);
+            log_html_row(html_file, "Assignment", "info", detail_msg, identification_node->line, identification_node->column);
 
             symbol_exists = lookup_symbol(scope_stack, scope_stack->stack, identification_node->data.string_offset);
 
             if (symbol_exists == -1) {
-                printf("Error: variable hasn't been initialised. Line %d Column %d",
-                    tree->nodes[current_node->left].line,
-                    tree->nodes[current_node->left].column);
+                snprintf(detail_msg, sizeof(detail_msg), "<strong>Fatal Error:</strong> Variable <code>%d</code> has not been initialized.", identification_node->data.string_offset);
+                log_html_row(html_file, "Error", "danger", detail_msg, tree->nodes[current_node->left].line, tree->nodes[current_node->left].column);
+                fprintf(html_file, "</table></div></body></html>\n");
+                fclose(html_file);
                 exit(1);
             }
 
-            analyse_block(tree, current_node->right, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type);
+            analyse_block(tree, current_node->right, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file);
             break;
         }
         
         default:
-            if (current_node->left != -1)  analyse_block(tree, current_node->left, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type);
-            if (current_node->right != -1) analyse_block(tree, current_node->right, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type);
+            if (current_node->left != -1)  analyse_block(tree, current_node->left, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file);
+            if (current_node->right != -1) analyse_block(tree, current_node->right, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file);
             break;
     }
 }
 
-void analyse(FileRegistry *registry, ASTTree *tree, ScopeStack *scope_stack, SymbolLists *symbol_lists) {
+void analyse(FileRegistry *registry, ASTTree *tree, ScopeStack *scope_stack, SymbolLists *symbol_lists, const char *output_filename) {
+    FILE *html_file = fopen(output_filename, "w");
+    if (!html_file) {
+        printf("Failed to create compilation report file: %s\n", output_filename);
+        return;
+    }
+
+    // Write CSS Styles & HTML Blueprint Header
+    fprintf(html_file, "<!DOCTYPE html>\n<html>\n<head>\n<title>Static Analysis Log</title>\n");
+    fprintf(html_file, "<style>\n");
+    fprintf(html_file, "  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f8f9fa; color: #333; margin: 30px; }\n");
+    fprintf(html_file, "  .container { max-width: 1000px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }\n");
+    fprintf(html_file, "  h2 { border-bottom: 2px solid #007bff; padding-bottom: 10px; color: #007bff; }\n");
+    fprintf(html_file, "  table { width: 100%%; border-collapse: collapse; margin-top: 20px; }\n");
+    fprintf(html_file, "  th, td { padding: 12px; text-align: left; border-bottom: 1px solid #dee2e6; }\n");
+    fprintf(html_file, "  th { background-color: #007bff; color: white; }\n");
+    fprintf(html_file, "  tr:hover { background-color: #f1f3f5; }\n");
+    fprintf(html_file, "  code { background-color: #e9ecef; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.95em; }\n");
+    fprintf(html_file, "  .badge { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.85em; text-transform: uppercase; color: white; }\n");
+    fprintf(html_file, "  .info { background-color: #17a2b8; }\n");
+    fprintf(html_file, "  .success { background-color: #28a745; }\n");
+    fprintf(html_file, "  .warning { background-color: #ffc107; color: #212529; }\n");
+    fprintf(html_file, "  .danger { background-color: #dc3545; }\n");
+    fprintf(html_file, "</style>\n</head>\n<body>\n<div class=\"container\">\n<h2>Compiler Analysis Report</h2>\n");
+    fprintf(html_file, "<table>\n<thead><tr><th>Action</th><th>Description</th><th>Location</th></tr></thead>\n<tbody>\n");
+
     int global_scope_idx = create_new_scope(scope_stack);
 
     for (int i = 0; i < registry->global_var_count; i++) {
-        analyse_block(tree, registry->global_variables[i], symbol_lists, scope_stack, global_scope_idx, 0, SYMBOL_GLOBAL);
+        analyse_block(tree, registry->global_variables[i], symbol_lists, scope_stack, global_scope_idx, 0, SYMBOL_GLOBAL, html_file);
     }
 
     for (int i = 0; i < registry->function_count; i++) {
-        analyse_block(tree, registry->global_functions[i], symbol_lists, scope_stack, global_scope_idx, 1, SYMBOL_FUNCTION);
+        analyse_block(tree, registry->global_functions[i], symbol_lists, scope_stack, global_scope_idx, 1, SYMBOL_FUNCTION, html_file);
     }
+
+    // HTML Footer Closure
+    fprintf(html_file, "</tbody>\n</table>\n</div>\n</body>\n</html>\n");
+    fclose(html_file);
+    printf("Static Analysis complete. Log file written to: %s\n", output_filename);
 }

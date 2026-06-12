@@ -105,7 +105,7 @@ int main(int argc, char * argv[]) {
 
         free(list.items);
 
-        analyse(&programs.files[i], &tree, &current_scope, &symbol_lists);
+        analyse(&programs.files[i], &tree, &current_scope, &symbol_lists, "semantic_analysis.html");
 
         // int node_count = 0;
         // generate_code(ast, program_assembly, &regs);
