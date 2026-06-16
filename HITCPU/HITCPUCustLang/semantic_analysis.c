@@ -4,6 +4,81 @@
 
 #include "struct.h"
 
+void log_historical_scopes_html(FILE *html_file, SymbolLists *symbol_lists, StringPool *pool) {
+    if (!html_file || !symbol_lists) return;
+
+    // Add a visual separator and a new section heading
+    fprintf(html_file, "<hr style=\"margin-top: 40px; border: 0; border-top: 2px dashed #dee2e6;\">\n");
+    fprintf(html_file, "<h2 style=\"color: #6c757d; margin-top: 30px;\">Archived Historical Scopes</h2>\n");
+    fprintf(html_file, "<p>Below is a snapshot of all scopes preserved in history after exiting their blocks:</p>\n");
+
+    if (symbol_lists->count == 0) {
+        fprintf(html_file, "<p><em>No historical scopes were archived.</em></p>\n");
+        return;
+    }
+
+    // Loop through every archived scope table
+    for (int s = 0; s < symbol_lists->count; s++) {
+        SymbolTable *table = &symbol_lists->historical_scopes[s];
+        
+        fprintf(html_file, "<div style=\"margin-bottom: 25px; border: 1px solid #dee2e6; border-radius: 6px; background-color: #fff;\">\n");
+        fprintf(html_file, "  <div style=\"background-color: #f8f9fa; padding: 10px 15px; border-bottom: 1px solid #dee2e6; font-weight: bold;\">\n");
+        fprintf(html_file, "    Scope Archive Index [%d] <span style=\"font-weight: normal; font-size: 0.9em; color: #6c757d; margin-left: 15px;\">(Symbols: %d / Capacity: %d)</span>\n", 
+                s, table->symbol_count, table->symbol_capacity);
+        fprintf(html_file, "    Parent Scope Index: [%d]\n", 
+                table->parent_scope);
+        fprintf(html_file, "  </div>\n");
+
+        if (table->symbol_count == 0) {
+            fprintf(html_file, "  <div style=\"padding: 15px; color: #6c757d; font-style: italic;\">Empty scope (no variables declared).</div>\n");
+            fprintf(html_file, "</div>\n");
+            continue;
+        }
+
+        // Sub-table for the symbols inside this specific scope
+        fprintf(html_file, "  <table style=\"margin-top: 0; border-radius: 0 0 6px 6px;\">\n");
+        fprintf(html_file, "    <thead style=\"background-color: #6c757d;\"><tr style=\"background-color: #e9ecef; color: #333;\">");
+        fprintf(html_file, "<th style=\"background-color: #eceeef; color: #333; width: 10%%;\">No.</th>");
+        fprintf(html_file, "<th style=\"background-color: #eceeef; color: #333; width: 30%%;\">Symbol Type</th>");
+        fprintf(html_file, "<th style=\"background-color: #eceeef; color: #333; width: 30%%;\">Data Type (Enum)</th>");
+        fprintf(html_file, "<th style=\"background-color: #eceeef; color: #333; width: 30%%;\">String Offset</th>");
+        fprintf(html_file, "<th style=\"background-color: #eceeef; color: #333; width: 26%%;\">String Name</th>"); // 🟢 New Column Header
+        fprintf(html_file, "</tr></thead>\n");
+        fprintf(html_file, "    <tbody>\n");
+
+        for (int i = 0; i < table->symbol_count; i++) {
+            Symbol *sym = &table->symbols[i];
+
+            const char *type_str = "UNKNOWN";
+            const char *badge_class = "secondary";
+            switch (sym->type) {
+                case SYMBOL_GLOBAL:   type_str = "GLOBAL"; badge_class = "success"; break;
+                case SYMBOL_LOCAL:    type_str = "LOCAL"; badge_class = "info"; break;
+                case SYMBOL_FUNCTION: type_str = "FUNCTION"; badge_class = "warning"; break;
+            }
+
+            // Safe lookup for the string name using the offset
+            const char *resolved_name = "N/A";
+            if (pool && sym->string_offset >= 0) {
+                resolved_name = &pool->data[sym->string_offset];
+            }
+
+            fprintf(html_file, "      <tr>\n");
+            fprintf(html_file, "        <td>%d</td>\n", i);
+            fprintf(html_file, "        <td><span class=\"badge %s\">%s</span></td>\n", badge_class, type_str);
+            // Feel free to wrap sym->data_type in token_type_to_string() if you want textual data types!
+            fprintf(html_file, "        <td><code>%d</code></td>\n", sym->data_type); 
+            fprintf(html_file, "        <td><code>%d</code></td>\n", sym->string_offset);
+            fprintf(html_file, "        <td><strong style=\"color: #495057;\">%s</strong></td>\n", resolved_name); // 🟢 New Column Data
+            fprintf(html_file, "      </tr>\n");
+        }
+
+        fprintf(html_file, "    </tbody>\n");
+        fprintf(html_file, "  </table>\n");
+        fprintf(html_file, "</div>\n");
+    }
+}
+
 int create_new_scope(ScopeStack *scope_stack) {
     if (scope_stack->stack + 1 >= scope_stack->scope_capacity) {
         scope_stack->scope_capacity *= 2;
@@ -43,6 +118,39 @@ void add_symbol(ScopeStack *scope_stack, int current_scope_idx, SymbolType type,
     table->symbol_count++;
 }
 
+// 1. Call this when entering a block to get a permanent ID
+int reserve_archive_slot(SymbolLists *symbol_lists) {
+    if (symbol_lists->count >= symbol_lists->capacity) {
+        symbol_lists->capacity = symbol_lists->capacity == 0 ? 4 : symbol_lists->capacity * 2;
+        SymbolTable *temp = realloc(symbol_lists->historical_scopes, symbol_lists->capacity * sizeof(SymbolTable));
+        if (!temp) { printf("Out of memory\n"); exit(1); }
+        symbol_lists->historical_scopes = temp;
+    }
+    
+    // Grab the current index and increment count so nobody else takes it
+    int reserved_idx = symbol_lists->count++;
+    
+    // Initialize it to safe defaults so it's not garbage if we inspect it mid-flight
+    symbol_lists->historical_scopes[reserved_idx].symbol_count = 0;
+    symbol_lists->historical_scopes[reserved_idx].symbols = NULL;
+    
+    return reserved_idx;
+}
+
+// 2. Call this when exiting a block to write the symbols into your reserved ID
+void commit_scope_history(SymbolLists *symbol_lists, int reserved_idx, SymbolTable *source_table, int parent_archive_idx) {
+    SymbolTable *dest_table = &symbol_lists->historical_scopes[reserved_idx];
+    
+    dest_table->symbol_count = source_table->symbol_count;
+    dest_table->symbol_capacity = source_table->symbol_capacity;
+    dest_table->parent_scope = parent_archive_idx; // 🟢 Set the permanent parent archive ID!
+    dest_table->symbols = malloc(source_table->symbol_capacity * sizeof(Symbol));
+    
+    if (dest_table->symbols && source_table->symbols) {
+        memcpy(dest_table->symbols, source_table->symbols, source_table->symbol_count * sizeof(Symbol));
+    }
+}
+
 int lookup_symbol(ScopeStack *scope_stack, int current_scope_idx, int string_offset) {
     int index = current_scope_idx;
     while (index >= 0) {
@@ -56,28 +164,6 @@ int lookup_symbol(ScopeStack *scope_stack, int current_scope_idx, int string_off
     }
     
     return -1;
-}
-
-void archive_scope_history(SymbolLists *symbol_lists, SymbolTable *source_table) {
-    if (symbol_lists->count >= symbol_lists->capacity) {
-        symbol_lists->capacity = symbol_lists->capacity == 0 ? 4 : symbol_lists->capacity * 2;
-
-        SymbolTable *temp = realloc(symbol_lists->historical_scopes, symbol_lists->capacity * sizeof(SymbolTable));
-        if (!temp) {
-            printf("Historical scope array failed to reallocate. Out of memory\n");
-            exit(1);
-        }
-        symbol_lists->historical_scopes = temp;
-    }
-
-    SymbolTable *dest_table = &symbol_lists->historical_scopes[symbol_lists->count++];
-    dest_table->symbol_count = source_table->symbol_count;
-    dest_table->symbol_capacity = source_table->symbol_capacity;
-    dest_table->symbols = malloc(source_table->symbol_capacity * sizeof(Symbol));
-    
-    if (dest_table->symbols && source_table->symbols) {
-        memcpy(dest_table->symbols, source_table->symbols, source_table->symbol_count * sizeof(Symbol));
-    }
 }
 
 // Helper to safely write HTML logs
@@ -109,7 +195,7 @@ void analyse_parameters(ASTTree *tree, int param_node_idx, ScopeStack *scope_sta
     }
 }
 
-void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_lists, ScopeStack *scope_stack, int current_scope_idx, int is_function_block, SymbolType symbol_type, FILE *html_file) {
+void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_lists, ScopeStack *scope_stack, int current_scope_idx, int is_function_block, SymbolType symbol_type, FILE *html_file, int parent_archive_idx) {
     if (current_node_idx == -1) return;
 
     ASTNode *current_node = &tree->nodes[current_node_idx];
@@ -118,8 +204,9 @@ void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_list
 
     switch (current_node->type) {
         case TOKEN_FUNCTION: {
-            add_symbol(scope_stack, current_scope_idx, SYMBOL_FUNCTION, tree->nodes[current_node_idx].data.string_offset, tree->nodes[current_node_idx].data.variable_type);
+            add_symbol(scope_stack, current_scope_idx, SYMBOL_FUNCTION, tree->nodes[current_node_idx].data.function.name_string_offset, tree->nodes[current_node_idx].data.variable_type);
             current_scope_idx = create_new_scope(scope_stack);
+            int my_archive_idx = reserve_archive_slot(symbol_lists);
 
             int param_list_idx = current_node->left;
             if (param_list_idx != -1) {
@@ -131,12 +218,12 @@ void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_list
                     }
                 }
             }
-            
+
             if (current_node->right != -1) {
-                analyse_block(tree, current_node->right, symbol_lists, scope_stack, current_scope_idx, 1, symbol_type, html_file);
+                analyse_block(tree, current_node->right, symbol_lists, scope_stack, current_scope_idx, 1, symbol_type, html_file, my_archive_idx);
             }
             
-            archive_scope_history(symbol_lists, &scope_stack->scopes[current_scope_idx]);
+            commit_scope_history(symbol_lists, my_archive_idx, &scope_stack->scopes[current_scope_idx], parent_archive_idx);
             free(scope_stack->scopes[current_scope_idx].symbols);
             scope_stack->stack--;
             break;
@@ -144,19 +231,21 @@ void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_list
         
         case TOKEN_BLOCK: {
             int created_new = 0;
+            int my_archive_idx = parent_archive_idx;
             if (is_function_block != 1) {
                 current_scope_idx = create_new_scope(scope_stack);
                 created_new = 1;
+                my_archive_idx = reserve_archive_slot(symbol_lists);
             }
 
             int total = current_node->data.block.statement_count;
             int *stmts = current_node->data.block.statement_indices;
             for (int i = 0; i < total; i++) {
-                analyse_block(tree, stmts[i], symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file);
+                analyse_block(tree, stmts[i], symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file, my_archive_idx);
             }
             
             if (created_new) {
-                archive_scope_history(symbol_lists, &scope_stack->scopes[current_scope_idx]);
+                commit_scope_history(symbol_lists, my_archive_idx, &scope_stack->scopes[current_scope_idx], parent_archive_idx);
                 free(scope_stack->scopes[current_scope_idx].symbols);
                 scope_stack->stack--;
             }
@@ -205,7 +294,7 @@ void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_list
                 add_symbol(scope_stack, current_scope_idx, symbol_type, identification_node->data.string_offset, current_node->data.variable_type);
 
                 if (assign_node->right != -1) {
-                    analyse_block(tree, assign_node->right, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file);
+                    analyse_block(tree, assign_node->right, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file, parent_archive_idx);
                 }
             } else {
                 ASTNode *target_node = &tree->nodes[current_node->left];
@@ -245,18 +334,18 @@ void analyse_block(ASTTree *tree, int current_node_idx, SymbolLists *symbol_list
                 exit(1);
             }
 
-            analyse_block(tree, current_node->right, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file);
+            analyse_block(tree, current_node->right, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file, parent_archive_idx);
             break;
         }
         
         default:
-            if (current_node->left != -1)  analyse_block(tree, current_node->left, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file);
-            if (current_node->right != -1) analyse_block(tree, current_node->right, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file);
+            if (current_node->left != -1)  analyse_block(tree, current_node->left, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file, parent_archive_idx);
+            if (current_node->right != -1) analyse_block(tree, current_node->right, symbol_lists, scope_stack, current_scope_idx, 0, symbol_type, html_file, parent_archive_idx);
             break;
     }
 }
 
-void analyse(FileRegistry *registry, ASTTree *tree, ScopeStack *scope_stack, SymbolLists *symbol_lists, const char *output_filename) {
+void analyse(FileRegistry *registry, ASTTree *tree, ScopeStack *scope_stack, SymbolLists *symbol_lists, const char *output_filename, StringPool *pool) {
     FILE *html_file = fopen(output_filename, "w");
     if (!html_file) {
         printf("Failed to create compilation report file: %s\n", output_filename);
@@ -283,17 +372,26 @@ void analyse(FileRegistry *registry, ASTTree *tree, ScopeStack *scope_stack, Sym
     fprintf(html_file, "<table>\n<thead><tr><th>Action</th><th>Description</th><th>Location</th></tr></thead>\n<tbody>\n");
 
     int global_scope_idx = create_new_scope(scope_stack);
+    int global_archive_idx = reserve_archive_slot(symbol_lists);
 
     for (int i = 0; i < registry->global_var_count; i++) {
-        analyse_block(tree, registry->global_variables[i], symbol_lists, scope_stack, global_scope_idx, 0, SYMBOL_GLOBAL, html_file);
+        analyse_block(tree, registry->global_variables[i], symbol_lists, scope_stack, global_scope_idx, 0, SYMBOL_GLOBAL, html_file, global_archive_idx);
     }
 
     for (int i = 0; i < registry->function_count; i++) {
-        analyse_block(tree, registry->global_functions[i], symbol_lists, scope_stack, global_scope_idx, 1, SYMBOL_FUNCTION, html_file);
+        analyse_block(tree, registry->global_functions[i], symbol_lists, scope_stack, global_scope_idx, 1, SYMBOL_FUNCTION, html_file, global_archive_idx);
     }
 
+    commit_scope_history(symbol_lists, global_archive_idx, &scope_stack->scopes[global_scope_idx], -1);
+    free(scope_stack->scopes[global_scope_idx].symbols);
+    scope_stack->stack--;
+
+    fprintf(html_file, "</tbody>\n</table>\n");
+
+    log_historical_scopes_html(html_file, symbol_lists, pool);
+
     // HTML Footer Closure
-    fprintf(html_file, "</tbody>\n</table>\n</div>\n</body>\n</html>\n");
+    fprintf(html_file, "</div>\n</body>\n</html>\n");
     fclose(html_file);
     printf("Static Analysis complete. Log file written to: %s\n", output_filename);
 }

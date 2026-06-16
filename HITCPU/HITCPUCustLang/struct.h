@@ -4,41 +4,46 @@
 #include <stdint.h>
 
 #define TOKEN_LIST(X) \
-    X(TOKEN_IDENTIFIER,     "IDENTIFIER")   \
-    X(TOKEN_INT_LIT,        "NUMBER")       \
-    X(TOKEN_CHAR_STRING,    "STRING")       \
-    X(TOKEN_CHAR_LIT,       "CHARACTER")    \
-    X(TOKEN_VAR_DECL,       "VARIABLE DECL")\
-    X(TOKEN_INT,            "INT")          \
-    X(TOKEN_CHAR,           "CHAR")         \
-    X(TOKEN_VOID,           "VOID")         \
-    X(TOKEN_PRINT,          "PRINT")        \
-    X(TOKEN_IF,             "IF")           \
-    X(TOKEN_RETURN,         "RETURN")       \
-    X(TOKEN_ASSIGN,         "=")            \
-    X(TOKEN_PLUS,           "+")            \
-    X(TOKEN_MINUS,          "-")            \
-    X(TOKEN_MULTIPLY,       "*")            \
-    X(TOKEN_DIVIDE,         "/")            \
-    X(TOKEN_COMPARE_EQ,     "==")           \
-    X(TOKEN_NOT_EQ,         "!=")           \
-    X(TOKEN_GREATER_THAN,   ">")            \
-    X(TOKEN_LESS_THAN,      "<")            \
-    X(TOKEN_LPAREN,         "(")            \
-    X(TOKEN_RPAREN,         ")")            \
-    X(TOKEN_LBRACES,        "{")            \
-    X(TOKEN_RBRACES,        "}")            \
-    X(TOKEN_LBRACKET,       "[")            \
-    X(TOKEN_RBRACKET,       "]")            \
-    X(TOKEN_COMMA,          ",")            \
-    X(TOKEN_SEMICOLON,      ";")            \
-    X(TOKEN_EOF,            "EOF")          \
-    X(TOKEN_UNKNOWN,        "UNKNOWN")      \
-    X(TOKEN_BLOCK,          "BLOCK")        \
-    X(TOKEN_FUNCTION,       "FUNCTION")     \
-    X(TOKEN_PARAM,          "PARAM")        \
-    X(TOKEN_ARG_LIST,       "ARGUMENTS")    \
-    X(TOKEN_FUNCTION_CALL,  "FUNCTION CALL")\
+    X(TOKEN_IDENTIFIER,         "IDENTIFIER")   \
+    X(TOKEN_INT_LIT,            "NUMBER")       \
+    X(TOKEN_CHAR_STRING,        "STRING")       \
+    X(TOKEN_CHAR_LIT,           "CHARACTER")    \
+    X(TOKEN_VAR_DECL,           "VARIABLE DECL")\
+    X(TOKEN_INT,                "INT")          \
+    X(TOKEN_CHAR,               "CHAR")         \
+    X(TOKEN_VOID,               "VOID")         \
+    X(TOKEN_IF,                 "IF")           \
+    X(TOKEN_ELSE,               "ELSE")         \
+    X(TOKEN_RETURN,             "RETURN")       \
+    X(TOKEN_ASSIGN,             "=")            \
+    X(TOKEN_PLUS,               "+")            \
+    X(TOKEN_MINUS,              "-")            \
+    X(TOKEN_MULTIPLY,           "*")            \
+    X(TOKEN_DIVIDE,             "/")            \
+    X(TOKEN_COMPARE_EQ,         "==")           \
+    X(TOKEN_NOT_EQ,             "!=")           \
+    X(TOKEN_GREATER_THAN,       ">")            \
+    X(TOKEN_GREATER_THAN_OR_EQ, ">=")           \
+    X(TOKEN_LESS_THAN,          "<")            \
+    X(TOKEN_LESS_THAN_OR_EQ,    "<=")           \
+    X(TOKEN_AND,                "&&")           \
+    X(TOKEN_OR,                 "||")           \
+    X(TOKEN_LPAREN,             "(")            \
+    X(TOKEN_RPAREN,             ")")            \
+    X(TOKEN_LBRACES,            "{")            \
+    X(TOKEN_RBRACES,            "}")            \
+    X(TOKEN_LBRACKET,           "[")            \
+    X(TOKEN_RBRACKET,           "]")            \
+    X(TOKEN_COMMA,              ",")            \
+    X(TOKEN_SEMICOLON,          ";")            \
+    X(TOKEN_EOF,                "EOF")          \
+    X(TOKEN_UNKNOWN,            "UNKNOWN")      \
+    X(TOKEN_BLOCK,              "BLOCK")        \
+    X(TOKEN_FUNCTION,           "FUNCTION")     \
+    X(TOKEN_PARAM,              "PARAM")        \
+    X(TOKEN_ARG_LIST,           "ARGUMENTS")    \
+    X(TOKEN_FUNCTION_CALL,      "FUNCTION CALL")\
+    X(TOKEN_CMP_LIST,           "COMPARES")     \
 
 typedef enum {
     #define AS_ENUM(ENUM, STR) ENUM,
@@ -89,6 +94,12 @@ typedef struct {
     int name_string_offset;
 } FunctionData;
 
+typedef struct {
+    int condition_idx;
+    int true_block_idx;
+    int false_block_idx;
+} IfStatement;
+
 typedef struct ASTNode {
     TokenType type;
     int left;
@@ -102,6 +113,7 @@ typedef struct ASTNode {
         BlockData block;
         FunctionData function;
         ParamData param;
+        IfStatement if_statement;
     } data;
 } ASTNode;
 
@@ -139,13 +151,14 @@ typedef enum {
 typedef struct {
     int string_offset;
     SymbolType type;
-    int data_type;
+    TokenType data_type;
 } Symbol;
 
 typedef struct {
     Symbol *symbols;
     int symbol_count;
     int symbol_capacity;
+    int parent_scope;
 } SymbolTable;
 
 typedef struct {
@@ -185,6 +198,8 @@ typedef enum {
     OP_RSB,
     OP_ADC,
     OP_SBC,
+    OP_MUL,
+    OP_DIV,
 
     // ==================== I-type ====================
     OP_ADDI,
@@ -261,7 +276,13 @@ typedef enum {
 
     OP_NOP,
     OP_HLT,
+
+    // =================== Mem-Type ===================
+    OP_LDR,
+    OP_STR,
     
+    OP_LABEL,
+
     OP_MAX_COUNT // Useful helper to keep track of array limits
 } OpcodeType;
 
@@ -276,11 +297,11 @@ typedef struct {
     OpcodeType op;
 
     // Abstract operands that any backend can interpret or lower
-    Register dest;
-    Register src1;
+    int dest;
+    int src1;
     union {
-        Register src2;
-        int32_t imm;
+        int src2;
+        int16_t imm;
         int32_t offset; // For memory offsets or branch targets
     } src2_or_imm;
 
