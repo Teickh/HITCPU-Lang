@@ -1,65 +1,15 @@
+int target;
 
-/*
-int global = 5;
-
-void test_Function(int apple) {
-    int x = apple + 10;
-    if (x > 5) {
-        int y = 20;
-    }
-}
-
-int eight_parameter_test(int one, int two, int three, int four, int five, int six, int seven, int eight) {
-    return eight;
-}
-
-int main() {
-    eight_parameter_test(1, 2, 3, 4, 5, 6, 7, 8);
-    test_Function(global);
-
+int calculate() {
+    // This 'target' is completely independent of the global 'target'
+    int target = 50; 
+    print target;
     return 0;
 }
-*/
-/*
-void test_Function(int apple) {
-    int x = apple + 10;
-    if (x > 5) {
-        int y = 20;
-    }
-}
 
 int main() {
-    int i = 1;
-    int j = 7;
-
-    if (i < j) {
-        int k = 10;
-    }
-
+    target = 100; // Refers to the global variable
+    int result = calculate();
+    print target; // Should still print the global value (100)
     return 0;
-}*/
-
-void print(int print) {
-    return print;
-}
-
-int main() {
-    int x = 5;
-    int y = 4;
-
-    if (x > y || x == y) {
-        if (y > x) {
-            print(y);
-        } else if (x == y) {
-            print(x);
-        }
-    } else {
-        if (y > x) {
-            print(y);
-        } else if (x == y) {
-            print(x);
-        } else {
-            return 0;
-        }
-    }
 }

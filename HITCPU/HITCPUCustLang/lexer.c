@@ -20,67 +20,46 @@ int find_string_in_pool(StringPool *pool, const char *value) {
 void print_tokens_to_html(TokenList *list, StringPool *pool, const char *filename) {
     FILE *html = fopen(filename, "w");
     if (!html) {
-        fprintf(stderr, "Error: Could not create Token HTML file %s\n", filename);
+        fprintf(stderr, "Error: Could not create HTML file %s\n", filename);
         return;
     }
 
-    fprintf(html, "<!DOCTYPE html>\n<html>\n<head>\n<title>Token Stream View</title>\n");
+    // Write HTML Boilerplate and CSS styling
+    fprintf(html, "<!DOCTYPE html>\n<html>\n<head>\n<title>Lexer Output</title>\n");
     fprintf(html, "<style>\n");
     fprintf(html, "  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 30px; background-color: #f7f9fa; color: #333; }\n");
-    fprintf(html, "  h2 { color: #2c3e50; border-bottom: 2px solid #2c3e50; padding-bottom: 8px; }\n");
+    fprintf(html, "  h2 { color: #2c3e50; border-bottom: 2px solid #34495e; padding-bottom: 8px; margin-top: 40px; }\n");
     fprintf(html, "  table { width: 100%%; border-collapse: collapse; margin-top: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); background-color: #fff; }\n");
     fprintf(html, "  th, td { padding: 12px 15px; text-align: left; border: 1px solid #e0e0e0; }\n");
-    fprintf(html, "  th { background-color: #2c3e50; color: #ffffff; font-weight: 600; }\n");
+    fprintf(html, "  th { background-color: #34495e; color: #ffffff; font-weight: 600; }\n");
     fprintf(html, "  tr:nth-child(even) { background-color: #f2f4f4; }\n");
     fprintf(html, "  tr:hover { background-color: #eaf2f8; }\n");
     fprintf(html, "  .mono { font-family: 'Courier New', Courier, monospace; font-weight: bold; }\n");
     fprintf(html, "</style>\n</head>\n<body>\n");
 
+    // 1. Captured Tokens Table
     fprintf(html, "<h2>Captured Tokens</h2>\n");
     fprintf(html, "<table>\n  <tr>\n    <th>Index</th>\n    <th>Token Type</th>\n    <th>Value</th>\n    <th>Line</th>\n    <th>Column</th>\n  </tr>\n");
 
     for (int i = 0; i < list->count; i++) {
         Token t = list->items[i];
-        
-        // Safety check: ensure offset doesn't read out of current pool bounds
-        const char *token_val = (t.value_offset < pool->size) ? &pool->data[t.value_offset] : "⚠️ MEMORY CORRUPTED";
+        const char *token_val = &pool->data[t.value_offset];
         
         fprintf(html, "  <tr>\n");
         fprintf(html, "    <td>%d</td>\n", i);
         fprintf(html, "    <td>%s</td>\n", token_type_to_string(t.type));
+        // Using class "mono" to make raw token values stand out clearly
         fprintf(html, "    <td class=\"mono\">%s</td>\n", token_val); 
         fprintf(html, "    <td>%d</td>\n", t.line);
         fprintf(html, "    <td>%d</td>\n", t.column);
         fprintf(html, "  </tr>\n");
     }
-    
-    fprintf(html, "</table>\n</body>\n</html>\n");
-    fclose(html);
-    printf("Token visualizer file successfully generated: %s\n", filename);
-}
+    fprintf(html, "</table>\n");
 
-void print_string_pool_to_html(StringPool *pool, const char *filename) {
-    FILE *html = fopen(filename, "w");
-    if (!html) {
-        fprintf(stderr, "Error: Could not create String Pool HTML file %s\n", filename);
-        return;
-    }
-
-    fprintf(html, "<!DOCTYPE html>\n<html>\n<head>\n<title>String Pool Internals</title>\n");
-    fprintf(html, "<style>\n");
-    fprintf(html, "  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 30px; background-color: #fcfcfc; color: #222; }\n");
-    fprintf(html, "  h2 { color: #d35400; border-bottom: 2px solid #d35400; padding-bottom: 8px; }\n");
-    fprintf(html, "  table { width: 100%%; border-collapse: collapse; margin-top: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); background-color: #fff; }\n");
-    fprintf(html, "  th, td { padding: 12px 15px; text-align: left; border: 1px solid #e0e0e0; }\n");
-    fprintf(html, "  th { background-color: #d35400; color: #ffffff; font-weight: 600; }\n");
-    fprintf(html, "  tr:nth-child(even) { background-color: #fdf2e9; }\n");
-    fprintf(html, "  tr:hover { background-color: #f5cba7; }\n");
-    fprintf(html, "  .mono { font-family: 'Courier New', Courier, monospace; font-weight: bold; color: #a04000; }\n");
-    fprintf(html, "</style>\n</head>\n<body>\n");
-
+    // 2. String Pool Table
     fprintf(html, "<h2>String Pool Status</h2>\n");
     fprintf(html, "<p><strong>Pool Size:</strong> %d / <strong>Pool Capacity:</strong> %d bytes</p>\n", pool->size, pool->capacity);
-    fprintf(html, "<table>\n  <tr>\n    <th style=\"width: 15%%;\">Pool Offset</th>\n    <th>String Constants / Identifiers</th>\n  </tr>\n");
+    fprintf(html, "<table>\n  <tr>\n    <th style=\"width: 15%%;\">Offset</th>\n    <th>String Value</th>\n  </tr>\n");
 
     int offset = 0;
     while (offset < pool->size) {
@@ -92,10 +71,11 @@ void print_string_pool_to_html(StringPool *pool, const char *filename) {
         
         offset += strlen(pool_str) + 1;
     }
-    
-    fprintf(html, "</table>\n</body>\n</html>\n");
+    fprintf(html, "</table>\n");
+
+    fprintf(html, "\n</body>\n</html>\n");
     fclose(html);
-    printf("String Pool visualizer file successfully generated: %s\n", filename);
+    printf("HTML visualizer file successfully generated: %s\n", filename);
 }
 
 void add_token(TokenList *list, StringPool *pool, TokenType type, const char *value, int line, int column) {
@@ -140,12 +120,20 @@ void add_token(TokenList *list, StringPool *pool, TokenType type, const char *va
 }
 
 TokenType check_keyword(const char *word) {
-    if (strcmp(word, "int") == 0)         return TOKEN_INT;
-    else if (strcmp(word, "char") == 0)   return TOKEN_CHAR;
-    else if (strcmp(word, "void") == 0)   return TOKEN_VOID;
-    else if (strcmp(word, "if") == 0)     return TOKEN_IF;
-    else if (strcmp(word, "else") == 0)   return TOKEN_ELSE;
-    else if (strcmp(word, "return") == 0) return TOKEN_RETURN;
+    if (strcmp(word, "int") == 0)
+        return TOKEN_INT;
+    
+    else if (strcmp(word, "char") == 0)
+        return TOKEN_CHAR;
+    
+    else if (strcmp(word, "if") == 0)
+        return TOKEN_IF;
+    
+    else if (strcmp(word, "print") == 0)
+        return TOKEN_PRINT;
+
+    else if (strcmp(word, "return") == 0)
+        return TOKEN_RETURN;
     
     return TOKEN_IDENTIFIER;
 }
@@ -162,12 +150,12 @@ void lexing(FILE *program, TokenList *list, StringPool *pool, int *total_lines) 
             continue;
         }
         
-        if (isalpha(c) || c == '_') {
+        if (isalpha(c)) {
             char buffer[1024];
             int j = 0;
 
             buffer[j++] = (char) c;
-            while ((c = fgetc(program)) != EOF && (isalnum(c) || c == '_')) if (j < 1023) buffer[j++] = (char) c;
+            while (isalnum(c = fgetc(program))) if (j < 1023) buffer[j++] = (char) c;
             ungetc(c, program);
             
             buffer[j] = '\0';
@@ -227,52 +215,19 @@ void lexing(FILE *program, TokenList *list, StringPool *pool, int *total_lines) 
                 case '[': add_token(list, pool, TOKEN_LBRACKET, "[", *total_lines, column); break;
                 case ']': add_token(list, pool, TOKEN_RBRACKET, "]", *total_lines, column); break;
                 case ',': add_token(list, pool, TOKEN_COMMA, ",", *total_lines, column); break;
-                case '|': {
-                    next = fgetc(program);
-                    if (next == '|') {
-                        add_token(list, pool, TOKEN_OR, "||", *total_lines, column);
-                    }
-                    break;
-                }
-                case '&': {
-                    next = fgetc(program);
-                    if (next == '&') {
-                        add_token(list, pool, TOKEN_AND, "&&", *total_lines, column);
-                    }
-                    break;
-                }
                 case '/': {
                     next = fgetc(program);
-                    if (next == '/') {
-                        while ((next = fgetc(program)) != '\n' && next != EOF) {}
-                    
-                        if (next == '\n') {
-                            (*total_lines)++;
-                            column = -1; // Set to -1 so the column++ at the end of the main loop makes it 0
-                        }
-                    } else if (next == '*') {
-                        int prev = 0;
-                        while ((next = fgetc(program)) != EOF) {
-                            // Track lines inside the comment block so your line count doesn't break
-                            if (next == '\n') {
-                                (*total_lines)++;
-                                column = 0; 
-                            } else {
-                                column++;
-                            }
-
-                            // If we find '*' followed by '/', the block comment is over
-                            if (prev == '*' && next == '/') {
-                                break;
-                            }
-                            prev = next;
-                        }
-                        column = -1;
-                    } else {
+                    if (next != '/') {
                         ungetc(next, program);
                         add_token(list, pool, TOKEN_DIVIDE, "/", *total_lines, column); break;
                     }
 
+                    while ((next = fgetc(program)) != '\n' && next != EOF) {}
+                    
+                    if (next == '\n') {
+                        (*total_lines)++;
+                        column = -1; // Set to -1 so the column++ at the end of the main loop makes it 0
+                    }
                     break;
                 }
                 case ';': 
