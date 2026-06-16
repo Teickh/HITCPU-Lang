@@ -29,11 +29,11 @@ FILE *open_file(const char *program_name) {
 FILE *create_assembly_file(const char *program_name) {
     char file_path[256];
 
-    snprintf(file_path, sizeof(file_path), "../HITCPUAssem/programs/%s.as", program_name);
+    snprintf(file_path, sizeof(file_path), "%s.as", program_name);
 
     FILE *program_assem = fopen(file_path, "wb");
 
-    fprintf(stderr, "\nCreating file...");
+    fprintf(stderr, "Creating file...\n");
 
     if (program_assem == NULL) {
         fprintf(stderr, "Attempted to create: %s\n", file_path);
@@ -73,6 +73,7 @@ int main(int argc, char * argv[]) {
         programs.count++;
     }
 
+    StringPool pool = { .data = malloc(1024), .size = 0, .capacity = 1024 };
     ScopeStack current_scope = { 
         .scope_capacity = 8,
         .scopes = malloc(8 * sizeof(SymbolTable)),
@@ -91,32 +92,32 @@ int main(int argc, char * argv[]) {
         }
 
         TokenList list = { .items = malloc(8 * sizeof(Token)), .count = 0, .capacity = 8 };
-        StringPool pool = { .data = malloc(1024), .size = 0, .capacity = 1024 };
-        // FILE *program_assembly = create_assembly_file(program_name);
         int total_lines = 0;
 
         lexing(program, &list, &pool, &total_lines);
         print_tokens_to_html(&list, &pool, "tokens.html");
 
         ASTTree tree = { .capacity = 8, .count = 0, .nodes = malloc(8 * sizeof(ASTNode)) };
-
         parsing(&list, &programs.files[i], &pool, &tree);
-        generate_ast_html("ast.html", &programs.files[i], &tree, &pool);
 
         free(list.items);
 
-        analyse(&programs.files[i], &tree, &current_scope, &symbol_lists, "semantic_analysis.html");
+        analyse(&programs.files[i], &tree, &current_scope, &symbol_lists, "semantic_analysis.html", &pool);
 
-        // int node_count = 0;
-        // generate_code(ast, program_assembly, &regs);
-        // printf("\n=== [DEBUG: AST TRAVERSAL] ===\n");
-        // debug_print_ast(ast, node_count);
+        InstructionStream stream = {
+            .capacity = 8,
+            .count = 0,
+            .data = malloc(8 * sizeof(AsmInstruction))
+        };
+        generate_code(&programs.files[i], &tree, &pool, &stream);
+
+        print_string_pool_to_html(&pool, "string_pool.html");
+        generate_ast_html("ast.html", &programs.files[i], &tree, &pool);
+        dump_stream_to_html("Instruction_stream.html", &stream, &symbol_lists, &pool);
 
         fclose(program);
-        // fclose(program_assembly);
         free(pool.data);
         free(tree.nodes);
-        // free_ast(tree);
     }
 
     return 0;

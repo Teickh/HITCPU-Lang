@@ -21,11 +21,16 @@ void fprintf_escaped(FILE *out, const char *str) {
 void print_block_html(FILE *out, ASTTree *tree, ASTNode *node, StringPool *pool, int node_index) {
     if (node_index == -1 || node == NULL) return;
 
-    // Check if this node has children to determine if we should make it collapsible
+    // Determine if this node should be collapsible (has children)
     int has_children = 0;
     if (node->type == TOKEN_BLOCK && node->data.block.statement_count > 0) has_children = 1;
     else if (node->type == TOKEN_PARAM && node->data.param.param_count > 0) has_children = 1;
-    else if (node->type != TOKEN_BLOCK && node->type != TOKEN_PARAM && (node->left != -1 || node->right != -1)) has_children = 1;
+    else if (node->type == TOKEN_ARG_LIST && node->data.param.param_count > 0) has_children = 1;
+    else if (node->type == TOKEN_FUNCTION_CALL && (node->left != -1 || node->right != -1)) has_children = 1;
+    else if (node->type == TOKEN_IF) has_children = 1;
+    // --- ADDED: Explicitly mark logical operators as structurally collapsible ---
+    else if ((node->type == TOKEN_AND || node->type == TOKEN_OR) && (node->left != -1 || node->right != -1)) has_children = 1;
+    else if (node->type != TOKEN_BLOCK && node->type != TOKEN_PARAM && node->type != TOKEN_ARG_LIST && node->type != TOKEN_FUNCTION_CALL && (node->left != -1 || node->right != -1)) has_children = 1;
 
     // Open HTML list item and layout container
     fprintf(out, "<li>\n");
@@ -49,6 +54,26 @@ void print_block_html(FILE *out, ASTTree *tree, ASTNode *node, StringPool *pool,
         fprintf(out, "<span class='node-val'>Name: ");
         fprintf_escaped(out, &pool->data[node->data.function.name_string_offset]);
         fprintf(out, " (Returns: %s)</span>", token_type_to_string(node->data.function.return_type));
+    } else if (node->type == TOKEN_FUNCTION_CALL) {
+        fprintf(out, "<span class='node-val'>Target: ");
+        fprintf_escaped(out, &pool->data[node->data.string_offset]);
+        fprintf(out, "()</span>");
+    } else if (node->type == TOKEN_ARG_LIST) {
+        fprintf(out, "<span class='node-val'>Count: %d</span>", node->data.param.param_count);
+    } 
+    // --- ADDED: Descriptive text strings for your logical pipelines ---
+    else if (node->type == TOKEN_AND) {
+        fprintf(out, "<span class='node-val'>Operation: Short-Circuit Logical AND (&&)</span>");
+    }
+    else if (node->type == TOKEN_OR) {
+        fprintf(out, "<span class='node-val'>Operation: Short-Circuit Logical OR (||)</span>");
+    }
+    else if (node->type == TOKEN_IF) {
+        if (node->data.if_statement.false_block_idx != -1) {
+            fprintf(out, "<span class='node-val'>Structure: If-Else Pipeline</span>");
+        } else {
+            fprintf(out, "<span class='node-val'>Structure: Simple If</span>");
+        }
     }
 
     // Close the summary/content container
@@ -58,7 +83,7 @@ void print_block_html(FILE *out, ASTTree *tree, ASTNode *node, StringPool *pool,
         fprintf(out, "</span>\n");
     }
 
-    // Traversal logic
+    // Traversal Logic
     if (node->type == TOKEN_BLOCK) {
         int total = node->data.block.statement_count;
         for (int i = 0; i < total; i++) {
@@ -68,11 +93,41 @@ void print_block_html(FILE *out, ASTTree *tree, ASTNode *node, StringPool *pool,
     } else if (node->type == TOKEN_PARAM) {
         int total = node->data.param.param_count;
         for (int i = 0; i < total; i++) {
-            // FIXED: Using parameter mapping structure instead of block mapping
             int child_index = node->data.param.param_indices[i]; 
             print_block_html(out, tree, &tree->nodes[child_index], pool, child_index);
         }
-    } else {
+    } else if (node->type == TOKEN_ARG_LIST) {
+        int total = node->data.param.param_count;
+        for (int i = 0; i < total; i++) {
+            int child_index = node->data.param.param_indices[i]; 
+            print_block_html(out, tree, &tree->nodes[child_index], pool, child_index);
+        }
+    } 
+    // --- ADDED: Specialized Traversal for the custom IfStatement Union format ---
+    else if (node->type == TOKEN_IF) {
+        // 1. Render the structural evaluation tree for the condition expressions
+        if (node->data.if_statement.condition_idx != -1) {
+            fprintf(out, "<li><span style='color: #eed49f; font-size: 0.9em; font-weight: bold;'>[Condition]</span>\n<ul>\n");
+            print_block_html(out, tree, &tree->nodes[node->data.if_statement.condition_idx], pool, node->data.if_statement.condition_idx);
+            fprintf(out, "</ul>\n</li>\n");
+        }
+        
+        // 2. Render the body code execution block for the true path
+        if (node->data.if_statement.true_block_idx != -1) {
+            fprintf(out, "<li><span style='color: #a6e3a1; font-size: 0.9em; font-weight: bold;'>[Then Branch]</span>\n<ul>\n");
+            print_block_html(out, tree, &tree->nodes[node->data.if_statement.true_block_idx], pool, node->data.if_statement.true_block_idx);
+            fprintf(out, "</ul>\n</li>\n");
+        }
+
+        // 3. Render the fallback execution block or next cascading If node
+        if (node->data.if_statement.false_block_idx != -1) {
+            fprintf(out, "<li><span style='color: #f38ba8; font-size: 0.9em; font-weight: bold;'>[Else Branch]</span>\n<ul>\n");
+            print_block_html(out, tree, &tree->nodes[node->data.if_statement.false_block_idx], pool, node->data.if_statement.false_block_idx);
+            fprintf(out, "</ul>\n</li>\n");
+        }
+    } 
+    else {
+        // Fallback standard binary node evaluation (.left and .right)
         if (node->left != -1)  print_block_html(out, tree, &tree->nodes[node->left], pool, node->left);
         if (node->right != -1) print_block_html(out, tree, &tree->nodes[node->right], pool, node->right);
     }
@@ -93,6 +148,8 @@ void generate_ast_html(const char *filename, FileRegistry *registry, ASTTree *tr
 
     // Write the HTML header and CSS styling (Included styles for the global container)
     fprintf(out, "<!DOCTYPE html>\n<html>\n<head>\n<style>\n");
+    fprintf(out, ".node-TOKEN_FUNCTION_CALL { background: #89dceb; color: #11111b; }\n"); // Sky Blue Call Node
+    fprintf(out, ".node-TOKEN_ARG_LIST { background: #94e2d5; color: #11111b; }\n");      // Pastel Teal Args Holder
     fprintf(out, "body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1e1e2e; color: #cdd6f4; padding: 20px; }\n");
     fprintf(out, "h1 { color: #f5c2e7; border-bottom: 2px solid #45475a; padding-bottom: 10px; }\n");
     fprintf(out, "h2 { color: #b4befe; margin-top: 20px; font-size: 1.2em; border-left: 3px solid #b4befe; padding-left: 8px; }\n");
@@ -109,6 +166,12 @@ void generate_ast_html(const char *filename, FileRegistry *registry, ASTTree *tr
     fprintf(out, ".node-TOKEN_FUNCTION { background: #cba6f7; }\n");
     fprintf(out, ".node-TOKEN_BLOCK { background: #fab387; }\n");
     fprintf(out, ".node-TOKEN_GLOBAL_VAR { background: #f9e2af; }\n"); // Accent color for global variables
+    
+    // --- ADDED: Color styling accent for the new IF syntax node layout ---
+    fprintf(out, ".node-TOKEN_IF { background: #f38ba8; color: #11111b; }\n"); 
+    fprintf(out, ".node-TOKEN_AND { background: #f9e2af; color: #11111b; }\n"); // Pastel Yellow-Gold
+    fprintf(out, ".node-TOKEN_OR { background: #fab387; color: #11111b; }\n");  // Soft Orange
+    
     fprintf(out, "</style>\n</head>\n<body>\n");
 
     fprintf(out, "<h1>AST Visualizer</h1>\n");
@@ -140,7 +203,6 @@ void generate_ast_html(const char *filename, FileRegistry *registry, ASTTree *tr
         for (int i = 0; i < registry->function_count; i++) {
             int node_index = registry->global_functions[i];
             
-            // Highlight the entry point if this function is the main function
             if (node_index == registry->main_function_node_index) {
                 fprintf(out, "<div style='border: 1px dashed #a6e3a1; padding: 4px; border-radius: 6px; margin-bottom: 8px;'>\n");
                 fprintf(out, "<span style='font-size: 0.8em; color: #a6e3a1; font-weight: bold; margin-left: 10px;'>[Program Entry Point]</span>\n");
@@ -163,6 +225,8 @@ void generate_ast_html(const char *filename, FileRegistry *registry, ASTTree *tr
 int parse_factor(ASTTree *tree, TokenList *list, int *i, StringPool *pool);
 int parse_term(ASTTree *tree, TokenList *list, int *i, StringPool *pool);
 int parse_expression(ASTTree *tree, TokenList *list, int *i, StringPool *pool);
+int parse_comparisons_ops(ASTTree *tree, TokenList *list, int *i, StringPool *pool);
+int parse_logical_and(ASTTree *tree, TokenList *list, int *i, StringPool *pool);
 int parse_body(ASTTree *tree, TokenList *list, StringPool *pool, int *i);
 
 void safe_set_left(ASTTree *tree, int node_index, int left_index) {
@@ -231,7 +295,6 @@ int create_node(ASTTree *tree, Token token, StringPool *pool) {
         case TOKEN_INT:
         case TOKEN_CHAR:
         case TOKEN_IF:
-        case TOKEN_PRINT:
         case TOKEN_IDENTIFIER:
         case TOKEN_ASSIGN:
         case TOKEN_PLUS:
@@ -244,18 +307,20 @@ int create_node(ASTTree *tree, Token token, StringPool *pool) {
         case TOKEN_LESS_THAN:
         case TOKEN_FUNCTION:
         case TOKEN_RETURN:
-        case TOKEN_VAR_DECL:
+        case TOKEN_FUNCTION_CALL:
+        case TOKEN_AND:
+        case TOKEN_OR:
             tree->nodes[tree->count].data.string_offset = token.value_offset;
             break;
 
+        case TOKEN_VAR_DECL:
         case TOKEN_UNKNOWN:
         case TOKEN_EOF:
         case TOKEN_BLOCK:
         case TOKEN_PARAM:
-        case TOKEN_FUNCTION_CALL:
         case TOKEN_ARG_LIST:
             break;
-
+            
         default:
             printf("Unknown type %s. Line %d Column %d",
                 token_type_to_string(tree->nodes[tree->count].type),
@@ -265,33 +330,6 @@ int create_node(ASTTree *tree, Token token, StringPool *pool) {
     }
 
     return tree->count++;
-}
-
-int merge_node(ASTTree *tree, TokenList *list, int *i, int index, char mode, StringPool *pool) {
-    int current_node = create_node(tree, list->items[(*i)], pool);
-    (*i)++;
-
-    safe_set_left(tree, current_node, index);
-    switch (mode) {
-        case 't':
-            safe_set_right(tree, current_node, parse_term(tree, list, i, pool));
-            break;
-        
-        case 'f':
-            safe_set_right(tree, current_node, parse_factor(tree, list, i, pool));
-            break;
-
-        case 'e':
-            safe_set_right(tree, current_node, parse_expression(tree, list, i, pool));
-            break;
-        
-        default:
-            printf("Unknown mode");
-            exit(1);
-            break;
-    }
-
-    return current_node;
 }
 
 int parse_argument_list(ASTTree *tree, TokenList *list, StringPool *pool, int *i) {
@@ -355,6 +393,41 @@ int parse_argument_list(ASTTree *tree, TokenList *list, StringPool *pool, int *i
     tree->nodes[arg_list_node].data.param.param_count = count;
     
     return arg_list_node;
+}
+
+int merge_node(ASTTree *tree, TokenList *list, int *i, int index, char mode, StringPool *pool) {
+    int current_node = create_node(tree, list->items[(*i)], pool);
+    (*i)++;
+
+    safe_set_left(tree, current_node, index);
+    switch (mode) {
+        case 't':
+            safe_set_right(tree, current_node, parse_term(tree, list, i, pool));
+            break;
+        
+        case 'f':
+            safe_set_right(tree, current_node, parse_factor(tree, list, i, pool));
+            break;
+
+        case 'e':
+            safe_set_right(tree, current_node, parse_expression(tree, list, i, pool));
+            break;
+
+        case 'c':
+            safe_set_right(tree, current_node, parse_comparisons_ops(tree, list, i, pool));
+            break;
+
+        case 'a':
+            safe_set_right(tree, current_node, parse_logical_and(tree, list, i, pool));
+            break;
+        
+        default:
+            printf("Unknown mode");
+            exit(1);
+            break;
+    }
+
+    return current_node;
 }
 
 int parse_factor(ASTTree *tree, TokenList *list, int *i, StringPool *pool) {
@@ -425,14 +498,35 @@ int parse_expression(ASTTree *tree, TokenList *list, int *i, StringPool *pool) {
     return current_node;
 }
 
-int parse_comparisons(ASTTree *tree, TokenList *list, int *i, StringPool *pool) {
+int parse_comparisons_ops(ASTTree *tree, TokenList *list, int *i, StringPool *pool) {
     int current_node = parse_expression(tree, list, i, pool);
 
-    while (list->items[*i].type == TOKEN_COMPARE_EQ || list->items[*i].type == TOKEN_NOT_EQ ||
-           list->items[*i].type == TOKEN_GREATER_THAN || list->items[*i].type == TOKEN_LESS_THAN) {
+    if (list->items[(*i)].type == TOKEN_COMPARE_EQ || list->items[(*i)].type == TOKEN_NOT_EQ ||
+        list->items[(*i)].type == TOKEN_GREATER_THAN || list->items[(*i)].type == TOKEN_LESS_THAN_OR_EQ ||
+        list->items[(*i)].type == TOKEN_LESS_THAN || list->items[(*i)].type == TOKEN_GREATER_THAN_OR_EQ) {
         current_node = merge_node(tree, list, i, current_node, 'e', pool);
     }
 
+    return current_node;
+}
+
+int parse_logical_and(ASTTree *tree, TokenList *list, int *i, StringPool *pool) {
+    int current_node = parse_comparisons_ops(tree, list, i, pool);
+
+    while (list->items[(*i)].type == TOKEN_AND) {
+        current_node = merge_node(tree, list, i, current_node, 'c', pool);
+    }
+    
+    return current_node;
+}
+
+int parse_logical_or(ASTTree *tree, TokenList *list, int *i, StringPool *pool) {
+    int current_node = parse_logical_and(tree, list, i, pool);
+
+    while (list->items[(*i)].type == TOKEN_OR) {
+        current_node = merge_node(tree, list, i, current_node, 'a', pool);
+    }
+    
     return current_node;
 }
 
@@ -504,17 +598,6 @@ int parse_block(TokenList *list, StringPool *pool, int *i, ASTTree *tree) {
             break;
         }
 
-        case TOKEN_PRINT: {
-            current_node = create_node(tree, list->items[(*i)], pool);
-            (*i)++;
-
-            safe_set_right(tree, current_node, parse_expression(tree, list, i, pool));
-
-            check_semicolon(list->items, list->items[(*i)].column, list->items[(*i)].line, i);
-
-            break;
-        }
-
         case TOKEN_IF:
             current_node = create_node(tree, list->items[(*i)], pool);
             (*i)++;
@@ -528,7 +611,7 @@ int parse_block(TokenList *list, StringPool *pool, int *i, ASTTree *tree) {
             }
             (*i)++;
 
-            safe_set_left(tree, current_node, parse_comparisons(tree, list, i, pool));
+            int comparisons_index = parse_logical_or(tree, list, i, pool);
 
             if (list->items[(*i)].type != TOKEN_RPAREN) {
                 printf("Missing parentheses at index %d line %d column %d",
@@ -538,6 +621,8 @@ int parse_block(TokenList *list, StringPool *pool, int *i, ASTTree *tree) {
                 exit(1);
             }
             (*i)++;
+
+            tree->nodes[current_node].data.if_statement.condition_idx = comparisons_index;
 
             if (list->items[(*i)].type != TOKEN_LBRACES) {
                 printf("Missing braces at index %d line %d column %d",
@@ -549,7 +634,7 @@ int parse_block(TokenList *list, StringPool *pool, int *i, ASTTree *tree) {
             (*i)++;
             
             int body_block_index = parse_body(tree, list, pool, i);
-            safe_set_right(tree, current_node, body_block_index);
+            tree->nodes[current_node].data.if_statement.true_block_idx = body_block_index;
             
             if (list->items[(*i)].type != TOKEN_RBRACES) {
                 printf("Missing braces at index %d line %d column %d",
@@ -560,7 +645,40 @@ int parse_block(TokenList *list, StringPool *pool, int *i, ASTTree *tree) {
             }
             (*i)++;
 
-            break;
+            if (list->items[(*i)].type == TOKEN_ELSE) {
+                (*i)++;
+
+                int false_block_idx;
+                if (list->items[(*i)].type == TOKEN_IF) {
+                    false_block_idx = parse_block(list, pool, i, tree); 
+                } else {
+                    if (list->items[(*i)].type != TOKEN_LBRACES) {
+                        printf("Missing braces at index %d line %d column %d",
+                            (*i),
+                            list->items[(*i)].line,
+                            list->items[(*i)].column);
+                        exit(1);
+                    }
+                    (*i)++;
+
+                    false_block_idx = parse_body(tree, list, pool, i);
+                    
+                    if (list->items[(*i)].type != TOKEN_RBRACES) {
+                        printf("Missing braces at index %d line %d column %d",
+                            (*i),
+                            list->items[(*i)].line,
+                            list->items[(*i)].column);
+                        exit(1);
+                    }
+                    (*i)++;
+                }
+                
+                tree->nodes[current_node].data.if_statement.false_block_idx = false_block_idx;
+                break;
+            } else {
+                tree->nodes[current_node].data.if_statement.false_block_idx = -1;
+                break;
+            }
             
         case TOKEN_RETURN:
             current_node = create_node(tree, list->items[(*i)], pool);
