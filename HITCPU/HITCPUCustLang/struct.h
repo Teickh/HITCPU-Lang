@@ -173,6 +173,10 @@ typedef struct {
     int capacity;
 } SymbolLists;
 
+#define VREG_R0  1000
+#define VREG_R14 1014
+#define VREG_R15 1015
+
 typedef enum {
     OP_NONE = 0,
 
@@ -286,27 +290,17 @@ typedef enum {
     OP_MAX_COUNT // Useful helper to keep track of array limits
 } OpcodeType;
 
-typedef enum {
-    REG_R0 = 0, REG_R1, REG_R2, REG_R3, REG_R4,
-    REG_R5, REG_R6, REG_R7, REG_R8, REG_R9, REG_R10,
-    REG_R11, REG_R12, REG_R13, REG_R14, REG_R15, // REG_R15 is the sp reg. R0 is the zero reg.
-} Register;
-
-// Represents an unrolled instruction in your stream
 typedef struct {
     OpcodeType op;
-
-    // Abstract operands that any backend can interpret or lower
     int dest;
     int src1;
     union {
         int src2;
-        int16_t imm;
-        int32_t offset; // For memory offsets or branch targets
+        int imm;
+        int offset;
     } src2_or_imm;
 
-    // Control flags for optimization passes
-    int is_dead; // Mark true if an optimization pass decides to delete this
+    int is_dead;
 } AsmInstruction;
 
 typedef struct {
@@ -314,5 +308,15 @@ typedef struct {
     int capacity;
     int count;
 } InstructionStream;
+
+typedef struct {
+    int is_busy;
+    int vreg_id;
+    int least_used;
+} Register;
+
+typedef struct {
+    Register reg[13]; // R1 - R14 register
+} RegStatus;
 
 #endif

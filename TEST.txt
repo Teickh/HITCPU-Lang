@@ -1,8 +1,8 @@
 
-/*
+
 int global = 5;
 
-void test_Function(int apple) {
+void test_Function1(int apple) {
     int x = apple + 10;
     if (x > 5) {
         int y = 20;
@@ -13,31 +13,12 @@ int eight_parameter_test(int one, int two, int three, int four, int five, int si
     return eight;
 }
 
-int main() {
-    eight_parameter_test(1, 2, 3, 4, 5, 6, 7, 8);
-    test_Function(global);
-
-    return 0;
-}
-*/
-/*
-void test_Function(int apple) {
+void test_Function2(int apple) {
     int x = apple + 10;
     if (x > 5) {
         int y = 20;
     }
 }
-
-int main() {
-    int i = 1;
-    int j = 7;
-
-    if (i < j) {
-        int k = 10;
-    }
-
-    return 0;
-}*/
 
 void print(int print) {
     return print;
@@ -62,4 +43,10 @@ int main() {
             return 0;
         }
     }
+
+    test_Function1(global);
+    eight_parameter_test(1, 2, 3, 4, 5, 6, 7, 8);
+    test_Function2(global);
+
+    return 0;
 }

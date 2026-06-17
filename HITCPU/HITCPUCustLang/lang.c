@@ -6,6 +6,7 @@
 #include "lexer.h"
 #include "parser.h"
 #include "semantic_analysis.h"
+#include "ir_gen.h"
 #include "code_gen.h"
 #include "struct.h"
 
@@ -84,6 +85,12 @@ int main(int argc, char * argv[]) {
         .count = 0,
         .historical_scopes = malloc(8 * sizeof(SymbolTable))
     };
+    InstructionStream stream = {
+        .capacity = 8,
+        .count = 0,
+        .data = malloc(8 * sizeof(AsmInstruction))
+    };
+    RegStatus reg_status = {0};
     for (int i = 0; i < programs.count; i++) {
         FILE *program = open_file(argv[i + 1]);
 
@@ -104,16 +111,13 @@ int main(int argc, char * argv[]) {
 
         analyse(&programs.files[i], &tree, &current_scope, &symbol_lists, "semantic_analysis.html", &pool);
 
-        InstructionStream stream = {
-            .capacity = 8,
-            .count = 0,
-            .data = malloc(8 * sizeof(AsmInstruction))
-        };
-        generate_code(&programs.files[i], &tree, &pool, &stream);
+        generate_ir(&programs.files[i], &tree, &pool, &stream);
 
         print_string_pool_to_html(&pool, "string_pool.html");
         generate_ast_html("ast.html", &programs.files[i], &tree, &pool);
         dump_stream_to_html("Instruction_stream.html", &stream, &symbol_lists, &pool);
+
+        hitcpu_emit_assembly("Assembly.as", &stream, &pool, &reg_status);
 
         fclose(program);
         free(pool.data);
