@@ -31,63 +31,60 @@ typedef struct {
     int address;
 } Label;
 
-Instruction table[] = { // [5 opcode][1 wr reg][1 wr mem][1 imm]
-    // R-type (wr_reg = 1, wr_mem = 0, imm = 0)
-    {"ADD",   MAKE_OP(0b00000, 0b100), FMT_R},
-    {"SUB",   MAKE_OP(0b00001, 0b100), FMT_R},
-    {"AND",   MAKE_OP(0b00010, 0b100), FMT_R},
-    {"OR",    MAKE_OP(0b00011, 0b100), FMT_R},
-    {"XOR",   MAKE_OP(0b00100, 0b100), FMT_R},
-    {"LSL",   MAKE_OP(0b00101, 0b100), FMT_R},
-    {"LSR",   MAKE_OP(0b00110, 0b100), FMT_R},
-    {"ROL",   MAKE_OP(0b00111, 0b100), FMT_R},
-    {"ROR",   MAKE_OP(0b01000, 0b100), FMT_R},
-    {"ASR",   MAKE_OP(0b01001, 0b100), FMT_R},
-    {"NAND",  MAKE_OP(0b01010, 0b100), FMT_R},
-    {"NOR",   MAKE_OP(0b01011, 0b100), FMT_R},
-    {"XNOR",  MAKE_OP(0b01100, 0b100), FMT_R},
-    {"NOT",   MAKE_OP(0b01101, 0b100), FMT_R},
-    {"MOV",   MAKE_OP(0b01110, 0b100), FMT_R2},
-    {"NEG",   MAKE_OP(0b01111, 0b100), FMT_R},
+Instruction table[] = { // [5 opcode][3 type]
+    // R-type (ALU = 000)
+    {"ADD",   MAKE_OP(0b00000, 0b000), FMT_R},
+    {"SUB",   MAKE_OP(0b00001, 0b000), FMT_R},
+    {"MOV",   MAKE_OP(0b00010, 0b000), FMT_R2},
+    {"AND",   MAKE_OP(0b00011, 0b000), FMT_R},
+    {"OR",    MAKE_OP(0b00100, 0b000), FMT_R},
+    {"XOR",   MAKE_OP(0b00101, 0b000), FMT_R},
+    {"LSL",   MAKE_OP(0b00110, 0b000), FMT_R},
+    {"LSR",   MAKE_OP(0b00111, 0b000), FMT_R},
+    {"ROL",   MAKE_OP(0b01000, 0b000), FMT_R},
+    {"ROR",   MAKE_OP(0b01001, 0b000), FMT_R},
+    {"ASR",   MAKE_OP(0b01010, 0b000), FMT_R},
+    {"NAND",  MAKE_OP(0b01011, 0b000), FMT_R},
+    {"NOR",   MAKE_OP(0b01100, 0b000), FMT_R},
+    {"XNOR",  MAKE_OP(0b01101, 0b000), FMT_R},
+    {"NOT",   MAKE_OP(0b01110, 0b000), FMT_R},
+    {"NEG",   MAKE_OP(0b01111, 0b000), FMT_R},
 
-    // I-type (wr_reg = 1, wr_mem = 0, imm = 1)
-    {"ADDI",  MAKE_OP(0b00000, 0b101), FMT_I},
-    {"SUBI",  MAKE_OP(0b00001, 0b101), FMT_I},
-    {"ANDI",  MAKE_OP(0b00010, 0b101), FMT_I},
-    {"ORI",   MAKE_OP(0b00011, 0b101), FMT_I},
-    {"XORI",  MAKE_OP(0b00100, 0b101), FMT_I},
-    {"LSLI",  MAKE_OP(0b00101, 0b101), FMT_I},
-    {"LSRI",  MAKE_OP(0b00110, 0b101), FMT_I},
-    {"ROLI",  MAKE_OP(0b00111, 0b101), FMT_I},
-    {"RORI",  MAKE_OP(0b01000, 0b101), FMT_I},
-    {"ASRI",  MAKE_OP(0b01001, 0b101), FMT_I},
-    {"NANDI", MAKE_OP(0b01010, 0b101), FMT_I},
-    {"NORI",  MAKE_OP(0b01011, 0b101), FMT_I},
-    {"XNORI", MAKE_OP(0b01100, 0b101), FMT_I},
-    {"MOVI",  MAKE_OP(0b01110, 0b101), FMT_I2},
+    // I-type (ALU imm = 001)
+    {"ADDI",  MAKE_OP(0b00000, 0b001), FMT_I},
+    {"SUBI",  MAKE_OP(0b00001, 0b001), FMT_I},
+    {"MOVI",  MAKE_OP(0b00010, 0b001), FMT_I2},
+    {"ANDI",  MAKE_OP(0b00011, 0b001), FMT_I},
+    {"ORI",   MAKE_OP(0b00100, 0b001), FMT_I},
+    {"XORI",  MAKE_OP(0b00101, 0b001), FMT_I},
+    {"LSLI",  MAKE_OP(0b00110, 0b001), FMT_I},
+    {"LSRI",  MAKE_OP(0b00111, 0b001), FMT_I},
+    {"ROLI",  MAKE_OP(0b01000, 0b001), FMT_I},
+    {"RORI",  MAKE_OP(0b01001, 0b001), FMT_I},
+    {"ASRI",  MAKE_OP(0b01010, 0b001), FMT_I},
+    {"NANDI", MAKE_OP(0b01011, 0b001), FMT_I},
+    {"NORI",  MAKE_OP(0b01100, 0b001), FMT_I},
+    {"XNORI", MAKE_OP(0b01101, 0b001), FMT_I},
 
-    // B-type (wr_reg = 0, wr_mem = 0, imm = 1)
-    {"LOAD",  MAKE_OP(0b00000, 0b101), FMT_M},
-    {"STR",   MAKE_OP(0b00001, 0b011), FMT_M},
+    // B-type (Branch = 010)
+    {"BEQ",   MAKE_OP(0b00000, 0b010), FMT_B},
+    {"BNE",   MAKE_OP(0b00010, 0b010), FMT_B},
+    {"BLTU",  MAKE_OP(0b00011, 0b010), FMT_B},
+    {"BGTU",  MAKE_OP(0b00100, 0b010), FMT_B},
+    {"BLTS",  MAKE_OP(0b00101, 0b010), FMT_B},
+    {"BGTS",  MAKE_OP(0b00110, 0b010), FMT_B},
+    {"BLEU",  MAKE_OP(0b00111, 0b010), FMT_B},
+    {"BGEU",  MAKE_OP(0b01000, 0b010), FMT_B},
+    {"BLES",  MAKE_OP(0b01001, 0b010), FMT_B},
+    {"BGES",  MAKE_OP(0b01010, 0b010), FMT_B},
 
-    // B-type (wr_reg = 0, wr_mem = 0, imm = 1)
-    {"BEQ",   MAKE_OP(0b00001, 0b001), FMT_B},
-    {"BNE",   MAKE_OP(0b00010, 0b001), FMT_B},
-    {"BLTU",  MAKE_OP(0b00011, 0b001), FMT_B},
-    {"BGTU",  MAKE_OP(0b00100, 0b001), FMT_B},
-    {"BLTS",  MAKE_OP(0b00101, 0b001), FMT_B},
-    {"BGTS",  MAKE_OP(0b00110, 0b001), FMT_B},
-    {"BLEU",  MAKE_OP(0b00111, 0b001), FMT_B},
-    {"BGEU",  MAKE_OP(0b01000, 0b001), FMT_B},
-    {"BLES",  MAKE_OP(0b01001, 0b001), FMT_B},
-    {"BGES",  MAKE_OP(0b01010, 0b001), FMT_B},
+    // M-type (Memory = 011)
+    {"JMP",   MAKE_OP(0b00000, 0b011), FMT_B},
+    {"LOAD",  MAKE_OP(0b00001, 0b011), FMT_M},
+    {"STR",   MAKE_OP(0b00010, 0b011), FMT_M},
 
-    {"JMP",   MAKE_OP(0b01011, 0b001), FMT_B},
-    {"CALL",  MAKE_OP(0b01100, 0b101), FMT_B}, // wr_reg = 1 to save return address
-    {"RET",   MAKE_OP(0b01101, 0b001), FMT_B},
-
-    {"NOP",   MAKE_OP(0b00000, 0b000), FMT_NONE},
-    {"HLT",   MAKE_OP(0b11111, 0b000), FMT_NONE}
+    // System Control (111)
+    {"HLT",   MAKE_OP(0b11111, 0b111), FMT_NONE}
 };
 
 const size_t num_of_instruction = sizeof(table) / sizeof(table[0]);
@@ -143,7 +140,7 @@ void resolve_register(char *arg) {
 }
 
 void assembling(FILE *program, FILE *program_bin) {
-    Label labels[MAX_LABELS]; // 1028 now cuz my RAM is 2^10 big lmao
+    Label labels[MAX_LABELS];
     for (int i = 0; i < MAX_LABELS; i++)
         labels[i].address = -1;
 
@@ -152,7 +149,6 @@ void assembling(FILE *program, FILE *program_bin) {
     int addr = 0;
 
     while (fgets(line, sizeof(line), program)) {
-        int found_label = 0;
         char *find_label = strtok(line, " \t\n,");
 
         if (find_label == NULL || strcmp(find_label, ";") == 0) continue;
@@ -172,7 +168,6 @@ void assembling(FILE *program, FILE *program_bin) {
             strcpy(labels[label_count].name, find_label);
             labels[i].address = addr;
             label_count++;
-            found_label++;
             break;
         }
     }

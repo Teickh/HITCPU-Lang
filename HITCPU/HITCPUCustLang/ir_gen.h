@@ -3,7 +3,7 @@
 
 #include "struct.h"
 
-void generate_ir(FileRegistry *registry, ASTTree *tree, StringPool *pool, InstructionStream *stream);
+void generate_ir(FileRegistry *registry, ASTTree *tree, StringPool *pool, InstructionStream *stream, SymbolLists *symbol_lists);
 void dump_stream_to_html(const char *filename, InstructionStream *stream, SymbolLists *sym_lists, StringPool *string_pool);
 
 #endif

@@ -80,6 +80,16 @@ const char* get_op_name(int op) {
         [OP_TSTI]   = "TSTI",
         [OP_TEQI]   = "TEQI",
 
+        [OP_CLV]    = "CLV",
+        [OP_CLC]    = "CLC",
+        [OP_CLZ]    = "CLZ",
+        [OP_CLN]    = "CLN",
+        [OP_SEV]    = "SEV",
+        [OP_SEC]    = "SEC",
+        [OP_SEZ]    = "SEZ",
+        [OP_SEN]    = "SEN",
+        [OP_BTST]   = "BTST",
+
         // B-type
         [OP_JMP]    = "JMP",
         [OP_BEQ]    = "BEQ",
@@ -101,6 +111,11 @@ const char* get_op_name(int op) {
         // Mem-Type
         [OP_LDR]    = "LDR",
         [OP_STR]    = "STR",
+        [OP_LOAD_PARAM] = "LDR_PARAM",
+        [OP_PUSH] = "PUSH",
+        [OP_POP] = "POP",
+        [OP_ALLOC_STACK] = "ALLOC_STACK",
+        [OP_LOAD_ADDR] = "LOAD_ADDR",
         
         [OP_LABEL]  = "LABEL"
     };
@@ -161,21 +176,38 @@ void dump_stream_to_html(const char *filename, InstructionStream *stream, Symbol
         else fprintf(html, "<td class='none'>-</td>\n");
 
         // Src2 / Imm / Offset variants based on your emit logic
-        // (Assuming you're tracking the type or keeping the structure properties)
-        if (instr.op == OP_MOVI || instr.op == OP_SUBI || instr.op == OP_ADDI) {
+        if (instr.op == OP_MOVI || instr.op == OP_SUBI || instr.op == OP_ADDI ||
+            instr.op == OP_ANDI || instr.op == OP_ORI  || instr.op == OP_XORI ||
+            instr.op == OP_LSLI || instr.op == OP_LSRI || instr.op == OP_ROLI ||
+            instr.op == OP_RORI || instr.op == OP_ASRI || instr.op == OP_NANDI ||
+            instr.op == OP_NORI || instr.op == OP_XNORI || instr.op == OP_RSBI ||
+            instr.op == OP_ADCI || instr.op == OP_SBCI || instr.op == OP_CMPI ||
+            instr.op == OP_TSTI || instr.op == OP_TEQI || instr.op == OP_ALLOC_STACK) {
+            
             fprintf(html, "  <td class='imm'>#%d (Imm)</td>\n", instr.src2_or_imm.imm);
-        } else if (instr.op == OP_STR || instr.op == OP_LABEL || instr.op == OP_LDR ||
-                   instr.op == OP_BGT || instr.op == OP_BLE || instr.op == OP_BLT ||
-                   instr.op == OP_BGE || instr.op == OP_BEQ || instr.op == OP_BNE ||
-                   instr.op == OP_CALL || instr.op == OP_JMP) {
+        } 
+        else if (instr.op == OP_STR  || instr.op == OP_LABEL || instr.op == OP_LDR ||
+                 instr.op == OP_BGT  || instr.op == OP_BLE   || instr.op == OP_BLT ||
+                 instr.op == OP_BGE  || instr.op == OP_BEQ   || instr.op == OP_BNE ||
+                 instr.op == OP_BCS  || instr.op == OP_BCC   || instr.op == OP_BMI ||
+                 instr.op == OP_BPL  || instr.op == OP_CALL  || instr.op == OP_JMP ||
+                 instr.op == OP_LOAD_PARAM || instr.op == OP_PUSH || instr.op == OP_POP ||
+                 instr.op == OP_LOAD_ADDR) {
+            
             // --- VARIANT LOOKUP LOGIC ---
             int target_offset = instr.src2_or_imm.offset;
             const char *var_name = NULL;
+            int is_stack_offset = 0;
 
+            // 🟢 FIXED: If it's a memory instruction using R15, it's a stack offset, NOT a string name!
+            if ((instr.op == OP_STR || instr.op == OP_LDR) && instr.src1 == VREG_R15) {
+                is_stack_offset = 1;
+            }
             // --- CHECK IF IT IS A SYSTEM LABEL FIRST ---
-            if (instr.op == OP_LABEL || instr.op == OP_BLE || instr.op == OP_BNE || 
-                instr.op == OP_BEQ || instr.op == OP_BLT || instr.op == OP_BGT ||
-                instr.op == OP_JMP) {
+            else if (instr.op == OP_LABEL || instr.op == OP_BLE || instr.op == OP_BNE || 
+                     instr.op == OP_BEQ || instr.op == OP_BLT || instr.op == OP_BGT ||
+                     instr.op == OP_BCS || instr.op == OP_BCC || instr.op == OP_BMI ||
+                     instr.op == OP_BPL || instr.op == OP_JMP) {
                 
                 if (string_pool && target_offset < string_pool->size) {
                     var_name = &string_pool->data[target_offset];
@@ -190,7 +222,6 @@ void dump_stream_to_html(const char *filename, InstructionStream *stream, Symbol
                     // Loop through the symbols in this specific scope table
                     for (int s = 0; s < current_table->symbol_count; s++) {
                         if (current_table->symbols[s].string_offset == target_offset) {
-                            // Found it! Grab the pointer from the string pool
                             var_name = &string_pool->data[target_offset];
                             break; 
                         }
@@ -199,14 +230,12 @@ void dump_stream_to_html(const char *filename, InstructionStream *stream, Symbol
                 }
             }
             
-            if (target_offset == VREG_R15) {
-                var_name = "stack";
-            }
-
-            if (var_name) {
+            // 🟢 FIXED: Format cleanly depending on whether it's a real stack offset or a name string
+            if (is_stack_offset) {
+                fprintf(html, "  <td class='imm'>#[R15 + %d] (Stack)</td>\n", target_offset);
+            } else if (var_name) {
                 fprintf(html, "  <td class='mem'>%s (Mem)</td>\n", var_name);
             } else {
-                // Fallback just in case a temporary offset isn't in the symbol lists
                 fprintf(html, "  <td class='mem'>offset_%d (Mem)</td>\n", target_offset);
             }
             // -----------------------------
@@ -327,11 +356,31 @@ int emit(InstructionStream *stream, int op, int dest, int src1, int src2_or_imm,
         instr->src2_or_imm.src2 = src2_or_imm;
     else if (!is_imm && is_mem)
         instr->src2_or_imm.offset = src2_or_imm;
+    else if (is_imm && is_mem)
+        instr->src2_or_imm.offset = src2_or_imm;
     
     return stream->count++;
 }
 
-int gen_expression(ASTTree *tree, int current_node_idx, InstructionStream *stream) {
+Symbol *lookup_symbol_historical(SymbolLists* symbol_lists, int current_scope_id, int string_offset) {
+    int index = current_scope_id;
+
+    while (index >= 0) {
+        SymbolTable current_scope_table = symbol_lists->historical_scopes[index];
+
+        for (int i = 0; i < current_scope_table.symbol_count; i++) {
+            if (current_scope_table.symbols[i].string_offset == string_offset) {
+                return &symbol_lists->historical_scopes[index].symbols[i];
+            }
+        }
+        
+        index = current_scope_table.parent_scope;
+    }
+    
+    return NULL;
+}
+
+int gen_expression(ASTTree *tree, int current_node_idx, InstructionStream *stream, SymbolLists *symbol_lists) {
     if (current_node_idx == -1) return -1;
 
     ASTNode *current_node = &tree->nodes[current_node_idx];
@@ -349,8 +398,39 @@ int gen_expression(ASTTree *tree, int current_node_idx, InstructionStream *strea
         }
         
         case TOKEN_IDENTIFIER: {
+            Symbol *sym = lookup_symbol_historical(symbol_lists, current_node->scope_id, current_node->data.string_offset);
             int dest = fresh_reg();
-            emit(stream, OP_LDR, dest, -1, current_node->data.string_offset, 0, 1);
+
+            if (sym && sym->type == SYMBOL_PARAM) {
+                emit(stream, OP_LOAD_PARAM, dest, sym->param_index, -1, 0, 1);
+            } else {
+                emit(stream, OP_LDR, dest, -1, current_node->data.string_offset, 0, 1);
+            }
+
+            return dest;
+        }
+
+        case TOKEN_PLUS:
+        case TOKEN_MINUS:
+        case TOKEN_MULTIPLY:
+        case TOKEN_DIVIDE: {
+            int left_reg = gen_expression(tree, current_node->left, stream, symbol_lists);
+            int right_reg = gen_expression(tree, current_node->right, stream, symbol_lists);
+            
+            int dest = fresh_reg();
+            
+            OpcodeType op;
+            switch (current_node->type) {
+                case TOKEN_PLUS:     op = OP_ADD; break;
+                case TOKEN_MINUS:    op = OP_SUB; break;
+                case TOKEN_MULTIPLY: op = OP_MUL; break;
+                case TOKEN_DIVIDE:   op = OP_DIV; break;
+                default: 
+                    printf("Unhandled binary operator\n"); 
+                    exit(1);
+            }
+            
+            emit(stream, op, dest, left_reg, right_reg, 0, 0); 
             return dest;
         }
 
@@ -383,8 +463,8 @@ void gen_condition(ASTTree *tree, int node_idx, InstructionStream *stream, Symbo
     }
 
     if (node->type >= TOKEN_COMPARE_EQ && node->type <= TOKEN_LESS_THAN_OR_EQ) {
-        int left_reg = gen_expression(tree, node->left, stream);
-        int right_reg = gen_expression(tree, node->right, stream);
+        int left_reg = gen_expression(tree, node->left, stream, symbol_lists);
+        int right_reg = gen_expression(tree, node->right, stream, symbol_lists);
         
         OpcodeType op;
         switch (node->type) {
@@ -402,7 +482,7 @@ void gen_condition(ASTTree *tree, int node_idx, InstructionStream *stream, Symbo
         return;
     }
 
-    int reg = gen_expression(tree, node_idx, stream);
+    int reg = gen_expression(tree, node_idx, stream, symbol_lists);
     emit(stream, OP_BNE, reg, 0, true_label, 0, 1);
     emit(stream, OP_JMP, -1, -1, false_label, 0, 1);
 }
@@ -412,7 +492,7 @@ void gen_node(ASTTree *tree, int current_node_idx, InstructionStream *stream, Sy
 
     ASTNode *current_node = &tree->nodes[current_node_idx];
     switch (current_node->type) {
-        case TOKEN_FUNCTION_CALL:{
+        case TOKEN_FUNCTION_CALL: {
             ASTNode *param_list = &tree->nodes[current_node->right];
             for (int i = 0; i < param_list->data.param.param_count; i++) {
                 ASTNode *param = &tree->nodes[param_list->data.param.param_indices[i]];
@@ -424,7 +504,7 @@ void gen_node(ASTTree *tree, int current_node_idx, InstructionStream *stream, Sy
                     }
                 } else {
                     emit(stream, OP_MOVI, i, -1, param->data.number_value, 1, 0);
-                    emit(stream, OP_STR, i, -1, VREG_R15, 1, 0);
+                    emit(stream, OP_PUSH, -1, i, 0, 0, 0);
                 }
             }
 
@@ -437,35 +517,35 @@ void gen_node(ASTTree *tree, int current_node_idx, InstructionStream *stream, Sy
             emit(stream, OP_LABEL, -1, -1, current_node->data.function.name_string_offset, 0, 1);
 
             // Prologue
-            int stack_size = 0;
-            ASTNode *param_list = &tree->nodes[current_node->left];
-            for (int i = 0; i < param_list->data.param.param_count; i++) {
-                ASTNode *param = &tree->nodes[param_list->data.param.param_indices[i]];
-                switch (param->data.variable_type) {
-                    case TOKEN_CHAR: stack_size += 1; break;
-                    case TOKEN_INT:  stack_size += 2; break;
-                    default:         stack_size += 2; break;
-                }
-            }
+            int has_call = 0;
             ASTNode *block = &tree->nodes[current_node->right];
             for (int i = 0; i < block->data.block.statement_count; i++) {
                 ASTNode *stmt = &tree->nodes[block->data.block.statement_indices[i]];
-                if (stmt->type == TOKEN_VAR_DECL) {
-                    switch (stmt->data.variable_type) {
-                        case TOKEN_CHAR: stack_size += 1; break;
-                        case TOKEN_INT:  stack_size += 2; break;
-                        default:         stack_size += 2; break;
-                    }
+                if (stmt->type == TOKEN_FUNCTION_CALL) {
+                    has_call = 1;
+                    break;
                 }
             }
-            emit(stream, OP_SUBI, VREG_R15, VREG_R15, stack_size, 1, 0);
 
-            // parameter
-            for (int i = 0; i < param_list->data.param.param_count; i++) {
-                ASTNode *param = &tree->nodes[param_list->data.param.param_indices[i]];
-                if (i < 7) {
-                    emit(stream, OP_STR, i, -1, tree->nodes[param->left].data.string_offset, 1, 0);
+            if (has_call) {
+                emit(stream, OP_PUSH, -1, VREG_R14, 0, 0, 0);
+            }
+
+            int local_size = 0;
+            SymbolTable *symbol_table = &symbol_lists->historical_scopes[current_node->scope_id];
+            for (int i = 0; i < symbol_table->symbol_count; i++) {
+                Symbol *sym = &symbol_table->symbols[i];
+                if (sym->type == SYMBOL_PARAM) continue;
+                sym->stack_offset = local_size;
+                switch (sym->data_type) {
+                    case TOKEN_CHAR: local_size += 1; break;
+                    case TOKEN_INT:  local_size += 2; break;
+                    default:         local_size += 2; break;
                 }
+            }
+            
+            if (local_size > 0) {
+                emit(stream, OP_ALLOC_STACK, -1, -1, local_size, 1, 0);
             }
 
             // body
@@ -474,7 +554,7 @@ void gen_node(ASTTree *tree, int current_node_idx, InstructionStream *stream, Sy
             }
             
             // epilogue
-            emit(stream, OP_ADDI, VREG_R15, VREG_R15, stack_size, 1, 0);
+            emit(stream, OP_ADDI, VREG_R15, VREG_R15, local_size, 1, 0);
             emit(stream, OP_RET, -1, -1, -1, 0, 0);
             break;
         }
@@ -525,9 +605,22 @@ void gen_node(ASTTree *tree, int current_node_idx, InstructionStream *stream, Sy
                 ASTNode *assign_node = &tree->nodes[assign_node_idx];
                 ASTNode *identification_node = &tree->nodes[assign_node->left];
 
-                int result = gen_expression(tree, assign_node->right, stream);
+                int result = gen_expression(tree, assign_node->right, stream, symbol_lists);
 
-                emit(stream, OP_STR, result, -1, identification_node->data.string_offset, 0, 1);
+                Symbol *sym = lookup_symbol_historical(symbol_lists, current_node->scope_id, identification_node->data.string_offset);
+                if (sym == NULL) {
+                    printf("Error: Symbol is NULL");
+                    exit(1);
+                }
+
+                if (current_node->scope_id == 0) {
+                    int dest = fresh_reg();
+
+                    emit(stream, OP_LOAD_ADDR, dest, -1, sym->string_offset, 0, 0);
+                    emit(stream, OP_STR, result, dest, 0, 0, 0);
+                } else {
+                    emit(stream, OP_STR, result, VREG_R15, sym->stack_offset, 1, 1);
+                }
             }
             
             break;
@@ -535,16 +628,16 @@ void gen_node(ASTTree *tree, int current_node_idx, InstructionStream *stream, Sy
 
         case TOKEN_ASSIGN: {
             ASTNode *ident_node = &tree->nodes[current_node->left];
-            int result = gen_expression(tree, current_node->right, stream);
+            int result = gen_expression(tree, current_node->right, stream, symbol_lists);
             emit(stream, OP_STR, result, -1, ident_node->data.string_offset, 0, 1);
             break;
         }
 
-        case TOKEN_RETURN: {
-            // int result = gen_expression(tree, current_node->left, stream);
-            // emit(stream, OP_MOV, REG_R1, result, -1, 0, 0);
-            break;
-        }
+        // case TOKEN_RETURN: {
+        //     int result = gen_expression(tree, current_node->left, stream, symbol_lists);
+        //     emit(stream, OP_RET, result, -1, -1, 0, 0);
+        //     break;
+        // }
 
         default:
             break;

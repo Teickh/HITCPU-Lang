@@ -41,38 +41,45 @@ void print_block_html(FILE *out, ASTTree *tree, ASTNode *node, StringPool *pool,
     }
 
     // Render the node contents based on type
-    fprintf(out, "<span class='node-tag node-%s'>%s</span> ", 
+    fprintf(out, "<span class='node-tag node-%s'>%s</span>", 
             token_type_to_string(node->type), token_type_to_string(node->type));
 
+    // 🟢 ADDED: Render scope ID badge using your existing CSS class
+    // Adjust the condition (e.g., node->scope_id >= 0) based on how you initialize default scope IDs
+    if (node->scope_id != -1) {
+        fprintf(out, "<span class='node-scope'>Scope ID: %d</span>", node->scope_id);
+    }
+
+    // Render unique properties of specific nodes
     if (node->type == TOKEN_INT_LIT) {
-        fprintf(out, "<span class='node-val'>Value: %d</span>", node->data.number_value);
+        fprintf(out, " <span class='node-val'>Value: %d</span>", node->data.number_value);
     } else if (node->type == TOKEN_IDENTIFIER) {
-        fprintf(out, "<span class='node-val'>");
+        fprintf(out, " <span class='node-val'>");
         fprintf_escaped(out, &pool->data[node->data.string_offset]);
         fprintf(out, "</span>");
     } else if (node->type == TOKEN_FUNCTION) {
-        fprintf(out, "<span class='node-val'>Name: ");
+        fprintf(out, " <span class='node-val'>Name: ");
         fprintf_escaped(out, &pool->data[node->data.function.name_string_offset]);
         fprintf(out, " (Returns: %s)</span>", token_type_to_string(node->data.function.return_type));
     } else if (node->type == TOKEN_FUNCTION_CALL) {
-        fprintf(out, "<span class='node-val'>Target: ");
+        fprintf(out, " <span class='node-val'>Target: ");
         fprintf_escaped(out, &pool->data[node->data.string_offset]);
         fprintf(out, "()</span>");
     } else if (node->type == TOKEN_ARG_LIST) {
-        fprintf(out, "<span class='node-val'>Count: %d</span>", node->data.param.param_count);
+        fprintf(out, " <span class='node-val'>Count: %d</span>", node->data.param.param_count);
     } 
     // --- ADDED: Descriptive text strings for your logical pipelines ---
     else if (node->type == TOKEN_AND) {
-        fprintf(out, "<span class='node-val'>Operation: Short-Circuit Logical AND (&&)</span>");
+        fprintf(out, " <span class='node-val'>Operation: Short-Circuit Logical AND (&&)</span>");
     }
     else if (node->type == TOKEN_OR) {
-        fprintf(out, "<span class='node-val'>Operation: Short-Circuit Logical OR (||)</span>");
+        fprintf(out, " <span class='node-val'>Operation: Short-Circuit Logical OR (||)</span>");
     }
     else if (node->type == TOKEN_IF) {
         if (node->data.if_statement.false_block_idx != -1) {
-            fprintf(out, "<span class='node-val'>Structure: If-Else Pipeline</span>");
+            fprintf(out, " <span class='node-val'>Structure: If-Else Pipeline</span>");
         } else {
-            fprintf(out, "<span class='node-val'>Structure: Simple If</span>");
+            fprintf(out, " <span class='node-val'>Structure: Simple If</span>");
         }
     }
 
@@ -162,12 +169,16 @@ void generate_ast_html(const char *filename, FileRegistry *registry, ASTTree *tr
     fprintf(out, ".leaf-content { padding: 4px 8px; background: #181825; border-radius: 4px; display: inline-block; }\n");
     fprintf(out, ".node-tag { font-family: monospace; font-weight: bold; font-size: 0.85em; padding: 2px 6px; border-radius: 3px; background: #89b4fa; color: #11111b; }\n");
     fprintf(out, ".node-val { font-family: monospace; color: #a6e3a1; margin-left: 8px; }\n");
-    fprintf(out, "/* Custom type badge accents */\n");
+    
+    // Style accent for the scope badge (Now in use!)
+    fprintf(out, ".node-scope { font-family: monospace; font-size: 0.8em; padding: 2px 5px; border-radius: 3px; background: #45475a; color: #a6adc8; margin-left: 6px; border: 1px solid #585b70; }\n");
+
+    // Custom type badge accents
     fprintf(out, ".node-TOKEN_FUNCTION { background: #cba6f7; }\n");
     fprintf(out, ".node-TOKEN_BLOCK { background: #fab387; }\n");
     fprintf(out, ".node-TOKEN_GLOBAL_VAR { background: #f9e2af; }\n"); // Accent color for global variables
     
-    // --- ADDED: Color styling accent for the new IF syntax node layout ---
+    // Color styling accent for the IF syntax node layout
     fprintf(out, ".node-TOKEN_IF { background: #f38ba8; color: #11111b; }\n"); 
     fprintf(out, ".node-TOKEN_AND { background: #f9e2af; color: #11111b; }\n"); // Pastel Yellow-Gold
     fprintf(out, ".node-TOKEN_OR { background: #fab387; color: #11111b; }\n");  // Soft Orange
@@ -282,6 +293,7 @@ int create_node(ASTTree *tree, Token token, StringPool *pool) {
     tree->nodes[tree->count].right = -1;
     tree->nodes[tree->count].line = token.line;
     tree->nodes[tree->count].column = token.column;
+    tree->nodes[tree->count].scope_id = -1;
     tree->nodes[tree->count].data.number_value = 0;
 
     switch (tree->nodes[tree->count].type) {

@@ -111,7 +111,7 @@ int main(int argc, char * argv[]) {
 
         analyse(&programs.files[i], &tree, &current_scope, &symbol_lists, "semantic_analysis.html", &pool);
 
-        generate_ir(&programs.files[i], &tree, &pool, &stream);
+        generate_ir(&programs.files[i], &tree, &pool, &stream, &symbol_lists);
 
         print_string_pool_to_html(&pool, "string_pool.html");
         generate_ast_html("ast.html", &programs.files[i], &tree, &pool);

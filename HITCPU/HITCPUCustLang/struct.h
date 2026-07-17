@@ -106,6 +106,7 @@ typedef struct ASTNode {
     int right;
     int line;
     int column;
+    int scope_id;
     union {
         int number_value;
         int string_offset;
@@ -145,13 +146,18 @@ typedef struct {
 typedef enum {
     SYMBOL_GLOBAL,
     SYMBOL_LOCAL,
-    SYMBOL_FUNCTION
+    SYMBOL_FUNCTION,
+    SYMBOL_PARAM,
+    SYMBOL_CONDITION,
+    SYMBOL_IF
 } SymbolType;
 
 typedef struct {
     int string_offset;
     SymbolType type;
     TokenType data_type;
+    int param_index;
+    int stack_offset;
 } Symbol;
 
 typedef struct {
@@ -284,6 +290,11 @@ typedef enum {
     // =================== Mem-Type ===================
     OP_LDR,
     OP_STR,
+    OP_LOAD_PARAM,
+    OP_PUSH,
+    OP_POP,
+    OP_ALLOC_STACK,
+    OP_LOAD_ADDR,
     
     OP_LABEL,
 
