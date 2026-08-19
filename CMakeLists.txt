@@ -10,7 +10,7 @@
 #    cmake --build build
 #
 # Note: To target only the custom language or assembly add
-# --target assem
+# --target assembly
 # or
 # --target lang
 #
@@ -49,15 +49,15 @@ target_link_options(lang PRIVATE
 # 2. Assembler Target (New)
 # ------------------------------------------------------------------------------
 file(GLOB ASSEM_SOURCES "HITCPU/HITCPUAssem/*.c")
-add_executable(assem ${ASSEM_SOURCES}) # Creates a separate binary named 'assem'
+add_executable(assembly ${ASSEM_SOURCES}) # Creates a separate binary named 'assem'
 
 # Reuse the exact same compiler and linker flag logic for the assembler
-target_compile_options(assem PRIVATE 
+target_compile_options(assembly PRIVATE 
     $<$<CONFIG:Debug>:-Wall -Wextra -g -fsanitize=address -fno-omit-frame-pointer>
     $<$<CONFIG:VSDebug>:-march=native -g> 
     $<$<CONFIG:Release>:-O3 -march=native -g> 
 )
 
-target_link_options(assem PRIVATE 
+target_link_options(assembly PRIVATE 
     $<$<CONFIG:Debug>:-fsanitize=address>
 )

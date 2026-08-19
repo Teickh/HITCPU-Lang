@@ -10,10 +10,13 @@ build-*/
 /cmake_install.cmake
 /Makefile
 /ninja.build
-/*.exe
-/*.out
-/*.o
-/*.obj
+*.exe
+*.out
+*.o
+*.obj
+*.pdb
+*.ilk
+*.bin
 *.html
 
 # Ignore local VS Code configurations
