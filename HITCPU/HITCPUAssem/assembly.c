@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
 
 #define MAKE_OP(op, mode) (((mode << 5) | (op)))
 
@@ -170,11 +171,58 @@ void check_register_bounds(int dest, int regA, int regB) {
     }
 }
 
-void resolve_register(char *arg, int addr) {
-    if (arg[0] != 'R') {
-        fprintf(stderr, "ERROR: Unknown register '%s' on this address %d.\n", arg, addr);
+int parse_immediate(const char *str, int *out_val) {
+    char *endptr;
+    errno = 0;
+    long val;
+
+    // Check for explicit binary prefix (0b / 0B)
+    if ((str[0] == '0' && (str[1] == 'b' || str[1] == 'B')) ||
+        (str[0] == '-' && str[1] == '0' && (str[2] == 'b' || str[2] == 'B'))) {
+        
+        int negative = (str[0] == '-');
+        const char *bin_str = negative ? str + 3 : str + 2;
+
+        val = strtol(bin_str, &endptr, 2); // Parse as Base 2
+        if (negative) val = -val;
+    } else {
+        val = strtol(str, &endptr, 0);      // Auto-detect Base 10, 16, or 8
+    }
+
+    // Validation: check if parsing failed or left unparsed characters
+    if (endptr == str || *endptr != '\0' || errno == ERANGE) {
+        return 0; // Invalid number
+    }
+
+    *out_val = (int)val;
+    return 1; // Success
+}
+
+int resolve_register(const char *arg, int addr) {
+    if (!arg || arg[0] == '\0') {
+        fprintf(stderr, "ERROR: Missing required register argument at address %d.\n", addr);
         exit(1);
     }
+
+    if (arg[0] != 'R' && arg[0] != 'r') {
+        fprintf(stderr, "ERROR: Expected register (starting with 'R'), got '%s' at address %d.\n", arg, addr);
+        exit(1);
+    }
+
+    int reg_num;
+    // Pass everything after 'R'/'r' to parse_immediate (handles hex, decimal, etc.)
+    if (!parse_immediate(arg + 1, &reg_num)) {
+        fprintf(stderr, "ERROR: Invalid register index in '%s' at address %d.\n", arg, addr);
+        exit(1);
+    }
+
+    // Optional bounds check (e.g. 0-15 for 16 registers)
+    if (reg_num < 0 || reg_num > 15) {
+        fprintf(stderr, "ERROR: Register 'R%d' out of bounds (0-15) at address %d.\n", reg_num, addr);
+        exit(1);
+    }
+
+    return reg_num;
 }
 
 // Returns 1 if the next valid line is a .WORD directive, 0 otherwise.
@@ -276,7 +324,10 @@ void assembling(FILE *program, FILE *program_bin) {
         } else if (strcmp(token, ".SPACE") == 0) {
             char *bytes_str = strtok(NULL, " \t\r\n,");
             if (bytes_str != NULL) {
-                int bytes = atoi(bytes_str);
+                int bytes = 0;
+                if (parse_immediate(bytes_str, &bytes))
+                    fprintf(stderr, "ERROR: parsing immidiete \"%s\" failed on this address %d.\n", bytes_str, addr);
+                
                 int words_32 = (bytes + 3) / 4;
                 addr += words_32 * 2;
             }
@@ -316,7 +367,10 @@ void assembling(FILE *program, FILE *program_bin) {
         if (strcmp(opcode, ".SPACE") == 0) {
             char *bytes_str = strtok(NULL, " \t\r\n,");
             if (bytes_str != NULL) {
-                int bytes = atoi(bytes_str);
+                int bytes = 0;
+                if (parse_immediate(bytes_str, &bytes))
+                    fprintf(stderr, "ERROR: parsing immidiete \"%s\" failed on this address %d.\n", bytes_str, addr);
+
                 int words_32 = (bytes + 3) / 4;
                 for (int i = 0; i < words_32; i++) {
                     printf("0x%08x: %08x (.SPACE reserve)\n", addr, instruction);
@@ -474,22 +528,22 @@ void assembling(FILE *program, FILE *program_bin) {
         
         switch (table[i].format) {
             case FMT_SYS: // special
-                if (strcmp(opcode, "HLT") == 0) {
+                if (strcmp(opcode, "HLT") == 0 || strcmp(opcode, "INVALL") == 0 || strcmp(opcode, "WBALL") == 0 || strcmp(opcode, "FLUSHALL") == 0) {
                     // Assembly: [opcode]
                     // Binary:   [opcode][0][0][0]
                     if (arg1 != NULL || arg2 != NULL || arg3 != NULL || arg4 != NULL) {
-                        fprintf(stderr, "ERROR on FMT_SYS_1: Unknown args on this address %d.\n", addr);
+                        fprintf(stderr, "ERROR on FMT_SYS: Unexpected arguments for '%s' at address %d.\n", opcode, addr);
                         exit(1);
                     }
-                } else if (strcmp(opcode, "LPT") == 0) {
+                } else if (strcmp(opcode, "LPT") == 0 || strcmp(opcode, "INVLINE") == 0 || strcmp(opcode, "WBLINE") == 0 || strcmp(opcode, "FLUSHLINE") == 0) {
                     // Assembly: [opcode][reg A]
                     // Binary:   [opcode][reg A][0][0]
                     if (arg2 != NULL || arg3 != NULL || arg4 != NULL) {
-                        fprintf(stderr, "ERROR on FMT_SYS_2: Unknown args on this address %d.\n", addr);
+                        fprintf(stderr, "ERROR on FMT_SYS: Unexpected extra arguments for '%s' at address %d.\n", opcode, addr);
                         exit(1);
                     }
 
-                    regA = (arg1) ? atoi(arg1 + 1) : 0;
+                    regA = resolve_register(arg1, addr);
                     instruction |= (regA << 8);
                 }
                 break;
@@ -498,17 +552,13 @@ void assembling(FILE *program, FILE *program_bin) {
                 // Assembly: [opcode][dest][reg A][reg B]
                 // Binary:   [opcode][dest][reg A][reg B]
                 if (arg4 != NULL) {
-                    fprintf(stderr, "ERROR on FMT_R: Unknown arg4 '%s' on this address %d.\n", arg4, addr);
+                    fprintf(stderr, "ERROR on FMT_R: Unknown arg4 '%s' at address %d.\n", arg4, addr);
                     exit(1);
                 }
-            
-                if (arg1) resolve_register(arg1, addr);
-                if (arg2) resolve_register(arg2, addr);
-                if (arg3) resolve_register(arg3, addr);
-                
-                dest = (arg1) ? atoi(arg1 + 1) : 0;
-                regA = (arg2) ? atoi(arg2 + 1) : 0;
-                regB = (arg3) ? atoi(arg3 + 1) : 0;
+
+                dest = resolve_register(arg1, addr);
+                regA = resolve_register(arg2, addr);
+                regB = resolve_register(arg3, addr);
                 instruction |= (dest << 8) | (regA << 12) | (regB << 16);
                 break;
 
@@ -516,16 +566,18 @@ void assembling(FILE *program, FILE *program_bin) {
                 // Assembly: [opcode][dest][reg A][imm]
                 // Binary:   [opcode][dest][reg A][imm]
                 if (arg4 != NULL) {
-                    fprintf(stderr, "ERROR on FMT_I: Unknown arg4 '%s' on this address %d.\n", arg4, addr);
+                    fprintf(stderr, "ERROR on FMT_I: Unknown arg4 '%s' at address %d.\n", arg4, addr);
                     exit(1);
                 }
 
-                if (arg1) resolve_register(arg1, addr);
-                if (arg2) resolve_register(arg2, addr);
-                
-                dest = (arg1) ? atoi(arg1 + 1) : 0;
-                regA = (arg2) ? atoi(arg2 + 1) : 0;
-                imm = (arg3) ? atoi(arg3) : 0;
+                dest = resolve_register(arg1, addr);
+                regA = resolve_register(arg2, addr);
+
+                if (!arg3 || !parse_immediate(arg3, &imm)) {
+                    fprintf(stderr, "ERROR on FMT_I: Invalid or missing immediate '%s' at address %d.\n", arg3 ? arg3 : "NULL", addr);
+                    exit(1);
+                }
+
                 instruction |= (dest << 8) | (regA << 12) | ((imm & 0xFFFF) << 16);
                 break;
 
@@ -533,31 +585,24 @@ void assembling(FILE *program, FILE *program_bin) {
                 // Assembly: [opcode][dest][reg A]
                 // Binary:   [opcode][dest][reg A][0]
                 if (arg3 != NULL || arg4 != NULL) {
-                    fprintf(stderr, "ERROR on FMT_R2: Unknown args on arg3 '%s' and arg4 '%s' on this address %d.\n", arg3, arg4, addr);
+                    fprintf(stderr, "ERROR on FMT_R2: Unexpected extra arguments at address %d.\n", addr);
                     exit(1);
                 }
-                
-                if (arg1) resolve_register(arg1, addr);
-                if (arg2) resolve_register(arg2, addr);
-                
-                dest = (arg1) ? atoi(arg1 + 1) : 0;
-                regA = (arg2) ? atoi(arg2 + 1) : 0;
+
+                dest = resolve_register(arg1, addr);
+                regA = resolve_register(arg2, addr);
                 instruction |= (dest << 8) | (regA << 12);
                 break;
 
             case FMT_I2:
-                // Assembly: [opcode][dest][imm]
+                // Assembly: [opcode][dest][imm or label]
                 // Binary:   [opcode][dest][0][imm]
                 if (arg3 != NULL || arg4 != NULL) {
-                    fprintf(stderr, "ERROR on FMT_I2: Unknown args on arg3 '%s' and arg4 '%s' on this address %d.\n", 
-                        arg3 ? arg3 : "NONE", 
-                        arg4 ? arg4 : "NONE", 
-                        addr);
+                    fprintf(stderr, "ERROR on FMT_I2: Unexpected extra arguments at address %d.\n", addr);
                     exit(1);
                 }
-                
-                if (arg1) resolve_register(arg1, addr);
-                dest = (arg1) ? atoi(arg1 + 1) : 0;
+
+                dest = resolve_register(arg1, addr);
 
                 imm = 0;
                 if (arg2) {
@@ -570,8 +615,14 @@ void assembling(FILE *program, FILE *program_bin) {
                         }
                     }
                     if (!found_label) {
-                        imm = (uint16_t)strtoul(arg2, NULL, 0); 
+                        if (!parse_immediate(arg2, &imm)) {
+                            fprintf(stderr, "ERROR on FMT_I2: Could not resolve label or immediate '%s' at address %d.\n", arg2, addr);
+                            exit(1);
+                        }
                     }
+                } else {
+                    fprintf(stderr, "ERROR on FMT_I2: Missing required immediate or label at address %d.\n", addr);
+                    exit(1);
                 }
 
                 instruction |= (dest << 8) | ((imm & 0xFFFF) << 16);
@@ -581,15 +632,12 @@ void assembling(FILE *program, FILE *program_bin) {
                 // Assembly: [opcode][reg A][reg B]
                 // Binary:   [opcode][0][reg A][reg B]
                 if (arg3 != NULL || arg4 != NULL) {
-                    fprintf(stderr, "ERROR on FMT_FR: Unknown args on arg3 '%s' and arg4 '%s' on this address %d.\n", arg3, arg4, addr);
+                    fprintf(stderr, "ERROR on FMT_FR: Unexpected extra arguments at address %d.\n", addr);
                     exit(1);
                 }
-                
-                if (arg1) resolve_register(arg1, addr);
-                if (arg2) resolve_register(arg2, addr);
-                
-                regA = (arg1) ? atoi(arg1 + 1) : 0;
-                regB = (arg2) ? atoi(arg2 + 1) : 0;
+
+                regA = resolve_register(arg1, addr);
+                regB = resolve_register(arg2, addr);
                 instruction |= (regA << 12) | (regB << 16);
                 break;
 
@@ -597,23 +645,33 @@ void assembling(FILE *program, FILE *program_bin) {
                 // Assembly: [opcode][reg A][imm]
                 // Binary:   [opcode][0][reg A][imm]
                 if (arg3 != NULL || arg4 != NULL) {
-                    fprintf(stderr, "ERROR on FMT_FI: Unknown args on arg3 '%s' and arg4 '%s' on this address %d.\n", arg3, arg4, addr);
+                    fprintf(stderr, "ERROR on FMT_FI: Unexpected extra arguments at address %d.\n", addr);
                     exit(1);
                 }
-                
-                if (arg1) resolve_register(arg1, addr);
-                
-                regA = (arg1) ? atoi(arg1 + 1) : 0;
-                imm = (arg2) ? atoi(arg2) : 0;
+
+                regA = resolve_register(arg1, addr);
+                if (!arg2 || !parse_immediate(arg2, &imm)) {
+                    fprintf(stderr, "ERROR on FMT_FI: Invalid or missing immediate '%s' at address %d.\n", arg2 ? arg2 : "NULL", addr);
+                    exit(1);
+                }
+
                 instruction |= (regA << 12) | ((imm & 0xFFFF) << 16);
                 break;
 
             case FMT_B:
                 if (strcmp(opcode, "JMP") == 0 || strcmp(opcode, "JMPA") == 0) {
-                    // Assembly: [opcode][label]
+                    // Assembly: [opcode][label or address]
                     // Binary:   [opcode][0][0][memory address]
+                    if (!arg1) {
+                        fprintf(stderr, "ERROR on FMT_B (%s): Missing target address/label at address %d.\n", opcode, addr);
+                        exit(1);
+                    }
+
                     if (isdigit((unsigned char)arg1[0]) || arg1[0] == '-') {
-                        imm = atoi(arg1);
+                        if (!parse_immediate(arg1, &imm)) {
+                            fprintf(stderr, "ERROR: Invalid immediate address '%s' at address %d.\n", arg1, addr);
+                            exit(1);
+                        }
                     } else {
                         int found = 0;
                         for (int k = 0; k < label_count; k++) {
@@ -624,36 +682,35 @@ void assembling(FILE *program, FILE *program_bin) {
                             }
                         }
                         if (!found) {
-                            fprintf(stderr, "ERROR: Could not resolve label '%s' at address %d.\n", arg3, addr);
+                            fprintf(stderr, "ERROR: Could not resolve label '%s' at address %d.\n", arg1, addr);
                             exit(1);
                         }
                     }
                 } else if (strcmp(opcode, "JMPR") == 0) {
                     // Assembly: [opcode][reg B]
                     // Binary:   [opcode][0][duplicate reg B][0]
-                    regB = (arg1) ? atoi(arg1 + 1) : 0;
+                    regB = resolve_register(arg1, addr);
                 } else {
-                    // Assembly: [opcode][reg A][reg B][label]
+                    // Assembly: [opcode][reg A][reg B][label or imm]
                     // Binary:   [opcode][reg A][reg B][memory address]
                     if (arg1 == NULL || arg2 == NULL || arg3 == NULL) {
-                        fprintf(stderr, "ERROR on FMT_B: Missing args on this address %d.\n", addr);
+                        fprintf(stderr, "ERROR on FMT_B: Missing arguments at address %d.\n", addr);
                         exit(1);
                     }
 
                     if (arg4 != NULL) {
-                        fprintf(stderr, "ERROR on FMT_B: Unknown args on arg3 '%s' and arg4 '%s' on this address %d.\n", arg3, arg4, addr);
+                        fprintf(stderr, "ERROR on FMT_B: Unexpected 4th argument '%s' at address %d.\n", arg4, addr);
                         exit(1);
                     }
-                    
-                    resolve_register(arg1, addr);
-                    resolve_register(arg2, addr);
-                    
-                    regA = (arg1) ? atoi(arg1 + 1) : 0;
-                    regB = (arg2) ? atoi(arg2 + 1) : 0;
+
+                    regA = resolve_register(arg1, addr);
+                    regB = resolve_register(arg2, addr);
+
                     int found = 0;
-                    if (isdigit(arg3[0]) || arg3[0] == '-') {
-                        imm = atoi(arg3);
-                        found = 1;
+                    if (isdigit((unsigned char)arg3[0]) || arg3[0] == '-') {
+                        if (parse_immediate(arg3, &imm)) {
+                            found = 1;
+                        }
                     } else {
                         for (int k = 0; k < label_count; k++) {
                             if (strcmp(arg3, labels[k].name) == 0) {
@@ -665,46 +722,44 @@ void assembling(FILE *program, FILE *program_bin) {
                     }
 
                     if (!found) {
-                        fprintf(stderr, "ERROR: Could not resolve label or immediate '%s' on this address %d.\n", arg3, addr);
+                        fprintf(stderr, "ERROR: Could not resolve label or immediate '%s' at address %d.\n", arg3, addr);
                         exit(1);
                     }
                 }
-                
+
                 instruction |= (regA << 8) | (regB << 12) | ((imm & 0xFFFF) << 16);
                 break;
+
             case FMT_M: {
                 // Assembly: [opcode][dest/reg A][reg B][label/offset]
                 // Binary:   [opcode][dest/duplicate reg A][reg A][memory address]
                 if (arg1 == NULL || arg2 == NULL || arg3 == NULL) {
-                    fprintf(stderr, "ERROR on FMT_M: Missing args on this address %d.\n", addr);
+                    fprintf(stderr, "ERROR on FMT_M: Missing arguments at address %d.\n", addr);
                     exit(1);
                 }
 
                 if (arg4 != NULL) {
-                    fprintf(stderr, "ERROR on FMT_M: Unknown args on arg3 '%s' and arg4 '%s' on this address %d.\n", arg3, arg4, addr);
+                    fprintf(stderr, "ERROR on FMT_M: Unexpected 4th argument '%s' at address %d.\n", arg4, addr);
                     exit(1);
                 }
-                
-                resolve_register(arg1, addr);
-                resolve_register(arg2, addr);
-                
-                dest = (arg1) ? atoi(arg1 + 1) : 0;
-                regA = (arg2) ? atoi(arg2 + 1) : 0;
+
+                dest = resolve_register(arg1, addr);
+                regA = resolve_register(arg2, addr);
+
                 int found = 0;
-                if (arg3) {
-                    for (int k = 0; k < label_count; k++) {
-                        if (strcmp(arg3, labels[k].name) == 0) {
-                            imm = (labels[k].address / 2) - ((addr / 2) + 1);
-                            found = 1;
-                            break;
-                        }
+                for (int k = 0; k < label_count; k++) {
+                    if (strcmp(arg3, labels[k].name) == 0) {
+                        imm = (labels[k].address / 2) - ((addr / 2) + 1);
+                        found = 1;
+                        break;
                     }
-                    if (!found) {
-                        imm = (uint16_t)strtoul(arg3, NULL, 0); 
+                }
+
+                if (!found) {
+                    if (!parse_immediate(arg3, &imm)) {
+                        fprintf(stderr, "ERROR on FMT_M: Could not resolve label or immediate '%s' at address %d.\n", arg3, addr);
+                        exit(1);
                     }
-                } else {
-                    fprintf(stderr, "ERROR: Could not resolve label or immediate '%s' on this address %d.\n", arg3, addr);
-                    exit(1);
                 }
 
                 instruction |= (dest << 8) | (regA << 12) | ((imm & 0xFFFF) << 16);
@@ -712,9 +767,8 @@ void assembling(FILE *program, FILE *program_bin) {
             }
 
             default:
-                // I'lll just leave it here. Not sure what to do for default
-                // Don't think need to do anything though
-                break;
+                fprintf(stderr, "ERROR: Unhandled instruction format %d at address %d.\n", table[i].format, addr);
+                exit(1);
         }
 
         check_register_bounds(dest, regA, regB);

@@ -16,6 +16,8 @@
 #
 # 3. Run the compiled executable:
 #    ./build/lang
+#    or
+#    ./build/assembly
 #
 # Note: If you get a "Ninja not found" error, make sure it's installed:
 #       - macOS: brew install ninja
@@ -46,7 +48,7 @@ target_link_options(lang PRIVATE
 )
 
 # ------------------------------------------------------------------------------
-# 2. Assembler Target (New)
+# 2. Assembler Target
 # ------------------------------------------------------------------------------
 file(GLOB ASSEM_SOURCES "HITCPU/HITCPUAssem/*.c")
 add_executable(assembly ${ASSEM_SOURCES}) # Creates a separate binary named 'assem'
