@@ -106,6 +106,8 @@ Instruction table[] = { // [5 opcode][3 type]
     {"WBLINE",    MAKE_OP(0b00101, 0b111), FMT_SYS}, // Writeback line containing address in Rs (if dirty)
     {"FLUSHLINE", MAKE_OP(0b00110, 0b111), FMT_SYS}, // Writeback line at address in Rs, then invalidate
 
+    {"IREQ", MAKE_OP(0b00111, 0b111), FMT_SYS},
+
     {"HLT",   MAKE_OP(0b11111, 0b111), FMT_SYS}
 };
 
@@ -263,6 +265,7 @@ void assembling(FILE *program, FILE *program_bin) {
     char line[256];
     int addr = 0;
 
+    // --- Pass 1: Symbol Table Construction ---
     while (fgets(line, sizeof(line), program)) { 
         char *comment = strpbrk(line, "#;");
         if (comment) *comment = '\0';
@@ -287,20 +290,13 @@ void assembling(FILE *program, FILE *program_bin) {
         }
 
         if (strcmp(token, ".WORD") == 0) {
-            // Check if the NEXT line is also a .WORD directive
             char temp_line[256];
             char *next_line = peek_next_line(program, temp_line, sizeof(temp_line));
 
             if (next_line != NULL && strstr(next_line, ".WORD") != NULL) {
-                // We found a pair! 
-                // We increment addr once for the 32-bit container holding BOTH words.
                 addr += 2;
-
-                // CRITICAL: Consume the second .WORD from the file stream right now 
-                // so Pass 1 doesn't process it a second time in the next loop iteration.
                 fgets(temp_line, sizeof(temp_line), program);
             } else {
-                // Standalone .WORD (16-bit data + 16-bit padding = 32 bits total)
                 addr += 2;
             }
 
@@ -312,8 +308,6 @@ void assembling(FILE *program, FILE *program_bin) {
             if (start_quote && end_quote) {
                 int str_len = (int)(end_quote - start_quote - 1);
                 int total_bytes = str_len + 1;
-
-                
                 int words_needed = (total_bytes + 1) / 2;
                 addr += (words_needed * 2);
             }
@@ -326,12 +320,11 @@ void assembling(FILE *program, FILE *program_bin) {
             if (bytes_str != NULL) {
                 int bytes = 0;
                 if (parse_immediate(bytes_str, &bytes))
-                    fprintf(stderr, "ERROR: parsing immidiete \"%s\" failed on this address %d.\n", bytes_str, addr);
+                    fprintf(stderr, "ERROR: parsing immediate \"%s\" failed on address %d.\n", bytes_str, addr);
                 
                 int words_32 = (bytes + 3) / 4;
                 addr += words_32 * 2;
             }
-            
             continue;
         }
         
@@ -341,11 +334,21 @@ void assembling(FILE *program, FILE *program_bin) {
     rewind(program);
     addr = 0;
 
+    // --- Pass 2: Code Generation & Debug Printing ---
     static uint16_t pending_word = 0;
     static int has_pending_word = 0;
-    while(fgets(line, sizeof(line), program)) {
+    while (fgets(line, sizeof(line), program)) {
         char *comment = strpbrk(line, "#;");
         if (comment) *comment = '\0';
+
+        // Preserve and trim clean assembly line for debug printing
+        char raw_line[256];
+        strcpy(raw_line, line);
+        size_t raw_len = strlen(raw_line);
+        while (raw_len > 0 && (raw_line[raw_len - 1] == '\n' || raw_line[raw_len - 1] == '\r' || 
+                               raw_line[raw_len - 1] == ' '  || raw_line[raw_len - 1] == '\t')) {
+            raw_line[--raw_len] = '\0';
+        }
 
         for (int i = 0; line[i] != '\0'; i++) {
             line[i] = toupper((unsigned char)line[i]);
@@ -358,7 +361,7 @@ void assembling(FILE *program, FILE *program_bin) {
         if (opcode == NULL) continue;
         
         if (opcode[strlen(opcode) - 1] == ':') {
-            opcode = strtok(NULL, " \t\r\n,"); // Get opcode/directive after label
+            opcode = strtok(NULL, " \t\r\n,"); // Get opcode after label
             if (opcode == NULL) continue;      // Standalone label line
         }
 
@@ -369,16 +372,15 @@ void assembling(FILE *program, FILE *program_bin) {
             if (bytes_str != NULL) {
                 int bytes = 0;
                 if (parse_immediate(bytes_str, &bytes))
-                    fprintf(stderr, "ERROR: parsing immidiete \"%s\" failed on this address %d.\n", bytes_str, addr);
+                    fprintf(stderr, "ERROR: parsing immediate \"%s\" failed on address %d.\n", bytes_str, addr);
 
                 int words_32 = (bytes + 3) / 4;
                 for (int i = 0; i < words_32; i++) {
-                    printf("0x%08x: %08x (.SPACE reserve)\n", addr, instruction);
+                    printf("0x%08x: %08x | %s\n", addr, instruction, raw_line);
                     fwrite(&instruction, sizeof(instruction), 1, program_bin);
                     addr += 2;
                 }
             }
-            
             continue;
         }
 
@@ -387,22 +389,21 @@ void assembling(FILE *program, FILE *program_bin) {
             char *end_quote = start_quote ? strrchr(start_quote + 1, '"') : NULL;
 
             if (start_quote && end_quote) {
-                uint8_t bytes[512]; // Temporary buffer for string bytes
+                uint8_t bytes[512];
                 int total_bytes = 0;
                 char *p = start_quote + 1;
 
-                // --- Phase 1: Parse string & escape sequences ---
                 while (p < end_quote) {
                     if (*p == '\\' && (p + 1) < end_quote) {
-                        p++; // Skip '\\'
+                        p++;
                         switch (*p) {
-                            case '0':  bytes[total_bytes++] = 0x00; break; // Null byte \0
-                            case 'n':  bytes[total_bytes++] = '\n'; break; // Newline \n
-                            case 'r':  bytes[total_bytes++] = '\r'; break; // Carriage return \r
-                            case 't':  bytes[total_bytes++] = '\t'; break; // Tab \t
-                            case '\\': bytes[total_bytes++] = '\\'; break; // Literal "\"
-                            case '"':  bytes[total_bytes++] = '"';  break; // Literal "
-                            default:   bytes[total_bytes++] = *p;   break; // Unknown escape, take literal
+                            case '0':  bytes[total_bytes++] = 0x00; break;
+                            case 'n':  bytes[total_bytes++] = '\n'; break;
+                            case 'r':  bytes[total_bytes++] = '\r'; break;
+                            case 't':  bytes[total_bytes++] = '\t'; break;
+                            case '\\': bytes[total_bytes++] = '\\'; break;
+                            case '"':  bytes[total_bytes++] = '"';  break;
+                            default:   bytes[total_bytes++] = *p;   break;
                         }
                     } else {
                         bytes[total_bytes++] = (uint8_t)(*p);
@@ -410,28 +411,23 @@ void assembling(FILE *program, FILE *program_bin) {
                     p++;
                 }
 
-                // --- Phase 2: Auto-append null terminator ---
-                bytes[total_bytes++] = 0x00;
+                bytes[total_bytes++] = 0x00; // Null terminator
 
-                // --- Phase 3: Pack into 32-bit Little-Endian words & write ---
                 int i = 0;
                 while (i < total_bytes) {
                     uint32_t word_buffer = 0;
-
-                    // Pack up to 4 bytes into a 32-bit word (Little-Endian)
                     for (int b = 0; b < 4; b++) {
                         if (i < total_bytes) {
                             word_buffer |= ((uint32_t)bytes[i]) << (b * 8);
                             i++;
                         } else {
-                            // Padding remaining word slot with 0x00
                             word_buffer |= ((uint32_t)0x00) << (b * 8);
                         }
                     }
 
                     fwrite(&word_buffer, sizeof(word_buffer), 1, program_bin);
-                    printf("0x%08x: %08x (.STRING data)\n", addr, word_buffer);
-                    addr += 2; // Increments address by 2 words / bytes per your ISA design
+                    printf("0x%08x: %08x | %s\n", addr, word_buffer, raw_line);
+                    addr += 2;
                 }
             }
             continue;
@@ -440,10 +436,10 @@ void assembling(FILE *program, FILE *program_bin) {
         if (strcmp(opcode, ".WORD") != 0 && has_pending_word) {
             uint32_t flushed_inst = (uint32_t)pending_word;
             fwrite(&flushed_inst, sizeof(flushed_inst), 1, program_bin);
-            printf("0x%08x: %08x (.WORD padded flush)\n", addr, flushed_inst);
+            printf("0x%08x: %08x | (.WORD padded flush)\n", addr, flushed_inst);
             
             has_pending_word = 0;
-            addr += 2; // Advance address for the flushed word
+            addr += 2;
         }
 
         if (strcmp(opcode, ".WORD") == 0) {
@@ -464,15 +460,13 @@ void assembling(FILE *program, FILE *program_bin) {
                 }
 
                 if (!has_pending_word) {
-                    // Buffer the first 16-bit word and skip main loop's fwrite/addr increment
                     pending_word = raw_value1;
                     has_pending_word = 1;
-                    continue; // <--- CRITICAL: Waits for next line without writing to file yet!
+                    continue;
                 } else {
-                    // Pair found! Pack both into 32 bits
                     uint32_t instruction = ((uint32_t)raw_value1 << 16) | pending_word;
                     fwrite(&instruction, sizeof(instruction), 1, program_bin);
-                    printf("0x%08x: %08x (.WORD pair)\n", addr, instruction);
+                    printf("0x%08x: %08x | %s\n", addr, instruction, raw_line);
                     
                     has_pending_word = 0;
                     addr += 2;
@@ -505,12 +499,12 @@ void assembling(FILE *program, FILE *program_bin) {
         } else if (strcmp(opcode, "CALL") == 0) {
             instruction |= table[18].opcode | (0x000E << 8) | (((addr / 2) + 1) & 0xFFFF) << 16;
             fwrite(&instruction, sizeof(instruction), 1, program_bin);
-            printf("0x%08x: %08x\n", addr, instruction); // debugging
+            printf("0x%08x: %08x | %s (part 1)\n", addr, instruction, raw_line);
             addr += 2;
             opcode = (char *)table[44].name;
         } else if (strcmp(opcode, "RET") == 0) {
             opcode = (char *)table[46].name;
-            arg1 = "R4";
+            arg1 = "R14";
         }
 
         size_t i;
@@ -522,40 +516,33 @@ void assembling(FILE *program, FILE *program_bin) {
         }
 
         if (i == num_of_instruction) {
-            fprintf(stderr, "ERROR 1: Unknown instruction '%s' on this address %d.\n", opcode, addr);
+            fprintf(stderr, "ERROR 1: Unknown instruction '%s' on address %d.\n", opcode, addr);
             exit(1);
         }
         
         switch (table[i].format) {
-            case FMT_SYS: // special
-                if (strcmp(opcode, "HLT") == 0 || strcmp(opcode, "INVALL") == 0 || strcmp(opcode, "WBALL") == 0 || strcmp(opcode, "FLUSHALL") == 0) {
-                    // Assembly: [opcode]
-                    // Binary:   [opcode][0][0][0]
+            case FMT_SYS:
+                if (strcmp(opcode, "HLT") == 0 || strcmp(opcode, "INVALL") == 0 || strcmp(opcode, "WBALL") == 0 || strcmp(opcode, "FLUSHALL") == 0 ||
+                    strcmp(opcode, "HLT") == 0) {
                     if (arg1 != NULL || arg2 != NULL || arg3 != NULL || arg4 != NULL) {
                         fprintf(stderr, "ERROR on FMT_SYS: Unexpected arguments for '%s' at address %d.\n", opcode, addr);
                         exit(1);
                     }
                 } else if (strcmp(opcode, "LPT") == 0 || strcmp(opcode, "INVLINE") == 0 || strcmp(opcode, "WBLINE") == 0 || strcmp(opcode, "FLUSHLINE") == 0) {
-                    // Assembly: [opcode][reg A]
-                    // Binary:   [opcode][reg A][0][0]
                     if (arg2 != NULL || arg3 != NULL || arg4 != NULL) {
                         fprintf(stderr, "ERROR on FMT_SYS: Unexpected extra arguments for '%s' at address %d.\n", opcode, addr);
                         exit(1);
                     }
-
                     regA = resolve_register(arg1, addr);
                     instruction |= (regA << 8);
                 }
                 break;
 
             case FMT_R:
-                // Assembly: [opcode][dest][reg A][reg B]
-                // Binary:   [opcode][dest][reg A][reg B]
                 if (arg4 != NULL) {
                     fprintf(stderr, "ERROR on FMT_R: Unknown arg4 '%s' at address %d.\n", arg4, addr);
                     exit(1);
                 }
-
                 dest = resolve_register(arg1, addr);
                 regA = resolve_register(arg2, addr);
                 regB = resolve_register(arg3, addr);
@@ -563,13 +550,10 @@ void assembling(FILE *program, FILE *program_bin) {
                 break;
 
             case FMT_I:
-                // Assembly: [opcode][dest][reg A][imm]
-                // Binary:   [opcode][dest][reg A][imm]
                 if (arg4 != NULL) {
                     fprintf(stderr, "ERROR on FMT_I: Unknown arg4 '%s' at address %d.\n", arg4, addr);
                     exit(1);
                 }
-
                 dest = resolve_register(arg1, addr);
                 regA = resolve_register(arg2, addr);
 
@@ -577,33 +561,25 @@ void assembling(FILE *program, FILE *program_bin) {
                     fprintf(stderr, "ERROR on FMT_I: Invalid or missing immediate '%s' at address %d.\n", arg3 ? arg3 : "NULL", addr);
                     exit(1);
                 }
-
                 instruction |= (dest << 8) | (regA << 12) | ((imm & 0xFFFF) << 16);
                 break;
 
             case FMT_R2:
-                // Assembly: [opcode][dest][reg A]
-                // Binary:   [opcode][dest][reg A][0]
                 if (arg3 != NULL || arg4 != NULL) {
                     fprintf(stderr, "ERROR on FMT_R2: Unexpected extra arguments at address %d.\n", addr);
                     exit(1);
                 }
-
                 dest = resolve_register(arg1, addr);
                 regA = resolve_register(arg2, addr);
                 instruction |= (dest << 8) | (regA << 12);
                 break;
 
             case FMT_I2:
-                // Assembly: [opcode][dest][imm or label]
-                // Binary:   [opcode][dest][0][imm]
                 if (arg3 != NULL || arg4 != NULL) {
                     fprintf(stderr, "ERROR on FMT_I2: Unexpected extra arguments at address %d.\n", addr);
                     exit(1);
                 }
-
                 dest = resolve_register(arg1, addr);
-
                 imm = 0;
                 if (arg2) {
                     int found_label = 0;
@@ -624,44 +600,34 @@ void assembling(FILE *program, FILE *program_bin) {
                     fprintf(stderr, "ERROR on FMT_I2: Missing required immediate or label at address %d.\n", addr);
                     exit(1);
                 }
-
                 instruction |= (dest << 8) | ((imm & 0xFFFF) << 16);
                 break;
 
             case FMT_FR:
-                // Assembly: [opcode][reg A][reg B]
-                // Binary:   [opcode][0][reg A][reg B]
                 if (arg3 != NULL || arg4 != NULL) {
                     fprintf(stderr, "ERROR on FMT_FR: Unexpected extra arguments at address %d.\n", addr);
                     exit(1);
                 }
-
                 regA = resolve_register(arg1, addr);
                 regB = resolve_register(arg2, addr);
                 instruction |= (regA << 12) | (regB << 16);
                 break;
 
             case FMT_FI:
-                // Assembly: [opcode][reg A][imm]
-                // Binary:   [opcode][0][reg A][imm]
                 if (arg3 != NULL || arg4 != NULL) {
                     fprintf(stderr, "ERROR on FMT_FI: Unexpected extra arguments at address %d.\n", addr);
                     exit(1);
                 }
-
                 regA = resolve_register(arg1, addr);
                 if (!arg2 || !parse_immediate(arg2, &imm)) {
                     fprintf(stderr, "ERROR on FMT_FI: Invalid or missing immediate '%s' at address %d.\n", arg2 ? arg2 : "NULL", addr);
                     exit(1);
                 }
-
                 instruction |= (regA << 12) | ((imm & 0xFFFF) << 16);
                 break;
 
             case FMT_B:
-                if (strcmp(opcode, "JMP") == 0 || strcmp(opcode, "JMPA") == 0) {
-                    // Assembly: [opcode][label or address]
-                    // Binary:   [opcode][0][0][memory address]
+                if (strcmp(opcode, "JMP") == 0) {
                     if (!arg1) {
                         fprintf(stderr, "ERROR on FMT_B (%s): Missing target address/label at address %d.\n", opcode, addr);
                         exit(1);
@@ -687,12 +653,33 @@ void assembling(FILE *program, FILE *program_bin) {
                         }
                     }
                 } else if (strcmp(opcode, "JMPR") == 0) {
-                    // Assembly: [opcode][reg B]
-                    // Binary:   [opcode][0][duplicate reg B][0]
                     regB = resolve_register(arg1, addr);
+                } else if (strcmp(opcode, "JMPA") == 0) {
+                    if (!arg1) {
+                        fprintf(stderr, "ERROR on FMT_B (%s): Missing target address/label at address %d.\n", opcode, addr);
+                        exit(1);
+                    }
+
+                    if (isdigit((unsigned char)arg1[0]) || arg1[0] == '-') {
+                        if (!parse_immediate(arg1, &imm)) {
+                            fprintf(stderr, "ERROR: Invalid immediate address '%s' at address %d.\n", arg1, addr);
+                            exit(1);
+                        }
+                    } else {
+                        int found = 0;
+                        for (int k = 0; k < label_count; k++) {
+                            if (strcmp(arg1, labels[k].name) == 0) {
+                                imm = (labels[k].address / 2);
+                                found = 1;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            fprintf(stderr, "ERROR: Could not resolve label '%s' at address %d.\n", arg1, addr);
+                            exit(1);
+                        }
+                    }
                 } else {
-                    // Assembly: [opcode][reg A][reg B][label or imm]
-                    // Binary:   [opcode][reg A][reg B][memory address]
                     if (arg1 == NULL || arg2 == NULL || arg3 == NULL) {
                         fprintf(stderr, "ERROR on FMT_B: Missing arguments at address %d.\n", addr);
                         exit(1);
@@ -731,8 +718,6 @@ void assembling(FILE *program, FILE *program_bin) {
                 break;
 
             case FMT_M: {
-                // Assembly: [opcode][dest/reg A][reg B][label/offset]
-                // Binary:   [opcode][dest/duplicate reg A][reg A][memory address]
                 if (arg1 == NULL || arg2 == NULL || arg3 == NULL) {
                     fprintf(stderr, "ERROR on FMT_M: Missing arguments at address %d.\n", addr);
                     exit(1);
@@ -774,8 +759,7 @@ void assembling(FILE *program, FILE *program_bin) {
         check_register_bounds(dest, regA, regB);
 
         fwrite(&instruction, sizeof(instruction), 1, program_bin);
-
-        printf("0x%08x: %08x\n", addr, instruction); // debugging
+        printf("0x%08x: %08x | %s\n", addr, instruction, raw_line);
 
         addr += 2;
     }
@@ -783,7 +767,7 @@ void assembling(FILE *program, FILE *program_bin) {
     if (has_pending_word) {
         uint32_t flushed_inst = (uint32_t)pending_word;
         fwrite(&flushed_inst, sizeof(flushed_inst), 1, program_bin);
-        printf("0x%08x: %08x (.WORD trailing flush)\n", addr, flushed_inst);
+        printf("0x%08x: %08x | (.WORD trailing flush)\n", addr, flushed_inst);
         addr += 2;
     }
 }
